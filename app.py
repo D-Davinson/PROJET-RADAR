@@ -1,8 +1,11 @@
 import sys
 from datetime import datetime
 import re
+from bs4 import BeautifulSoup
 import openai
+import requests
 from scholarly import scholarly
+import re
 # importation des librairies pour le traitement des données
 
 import streamlit as st # librairie de streamlit
@@ -117,6 +120,39 @@ def calculate_h_index(publications):
             break
     return h_index
 
+def get_scholar_profile_url(author_name):
+    """Recherche l'auteur et récupère son URL Google Scholar."""
+    search_query = scholarly.search_author(author_name)
+    try:
+        author_info = next(search_query)  # Prend le premier résultat
+        scholar_id = author_info['scholar_id']
+        return f"https://scholar.google.fr/citations?hl=fr&user={scholar_id}"
+    except StopIteration:
+        return None
+    
+
+def get_h_index_from_scholar(profile_url):
+    """Scrape le h-index depuis le profil Google Scholar."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
+    }
+    response = requests.get(profile_url, headers=headers)
+    
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Sélectionner tous les éléments de la table des stats (Citations, h-index, i10-index)
+        stats = soup.find_all("td", class_="gsc_rsb_std")
+
+        if len(stats) >= 2:  # h-index est la deuxième valeur dans cette table
+            return stats[2].text.strip()
+        else:
+            return "Non disponible"
+    else:
+        return "Erreur de chargement"
+
+    
+
 
 # Fonction pour rechercher un auteur et son h-index
 def search_scholar_with_h_index(query, max_articles=5):
@@ -146,6 +182,22 @@ def search_scholar_with_h_index(query, max_articles=5):
     except Exception as e:
         st.error(f"An error occurred: {e}")
         return None
+    
+
+# Fonction pour rechercher des publications en fonction d'un thème
+def search_publications_by_theme(theme, max_results=10):
+    try:
+        search_query = scholarly.search_pubs(theme)
+        publications = [next(search_query) for _ in range(max_results)]
+        return publications
+    except StopIteration:
+        st.warning("No results found for this theme.")
+        return []
+    except Exception as e:
+        st.error(f"An error occurred: {e}")
+        return []
+
+
 
 # fonction pour détecter le séparateur d'un fichier csv
 def detect_separator(uploaded_file):
@@ -593,27 +645,94 @@ elif st.session_state['page'] == "documentation":
 
   st.video("https://firebasestorage.googleapis.com/v0/b/hyphip-8ca89.appspot.com/o/3c1d1e279e.mp4?alt=media&token=b0a7e0e9-1978-49fc-9c9b-40b4a45aa09c")
 
-#page radar
+# Page Radar
 elif st.session_state['page'] == "radar":
-  # Interface Streamlit
-  st.title("Google Scholar Radar")
-  search_term = st.sidebar.text_input("Search Researcher", placeholder="Enter a researcher's name")
-  max_articles = st.sidebar.slider("Max number of articles", 1, 20, 5)
-  if st.sidebar.button("Search"):
-    if search_term.strip():
-        with st.spinner("Fetching data..."):
-            result = search_scholar_with_h_index(search_term, max_articles)
-        
-        if result:
-            st.success(f"Researcher Found: {result['name']}")
-            st.write(f"Affiliation: {result['affiliation']}")
-            st.write(f"H-index: {result['h_index']}")
+    st.title("Google Scholar Radar")
 
-            st.subheader(f"Top {max_articles} Articles:")
-            for idx, article in enumerate(result["articles"], 1):
-                st.write(f"{idx}. {article['title']} ({article['citations']} citations)")
-    else:
-        st.warning("Please enter a search term.")
+    # Choix de l'option de recherche
+    search_option = st.radio("Choisissez une option de recherche :", ["Chercheur", "Thème de recherche"])
+
+    if search_option == "Chercheur":
+        # Interface existante pour la recherche par chercheur
+        search_term = st.sidebar.text_input("Search Researcher", placeholder="Enter a researcher's name")
+        max_articles = st.sidebar.slider("Max number of articles", 1, 20, 5)
+
+        if st.sidebar.button("Search"):
+            if search_term.strip():
+                with st.spinner("Fetching data..."):
+                    result = search_scholar_with_h_index(search_term, max_articles)
+
+                if result:
+                    st.success(f"Researcher Found: {result['name']}")
+                    st.write(f"Affiliation: {result['affiliation']}")
+                    st.write(f"H-index: {result['h_index']}")
+
+                    st.subheader(f"Top {max_articles} Articles:")
+                    for idx, article in enumerate(result["articles"], 1):
+                        st.write(f"{idx}. {article['title']} ({article['citations']} citations)")
+            else:
+                st.warning("Please enter a search term.")
+
+
+    elif search_option == "Thème de recherche":
+        # Interface Streamlit
+        st.title("Recherche par Thème de Projet")
+
+        search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
+
+        if search_theme:
+            try:
+                search_query = scholarly.search_pubs(search_theme)
+                results = []
+
+                for _ in range(5):  # Limite à 1 résultat (ajuster selon besoin)
+                    try:
+                        publication = next(search_query)
+                        authors = publication['bib']['author']
+                        title = publication['bib']['title']
+
+                        if isinstance(authors, list):
+                            authors_list = authors[:3]
+                        else:
+                            authors_list = authors.split(', ')[:3]
+
+                        for author in authors_list:
+                            profile_url = get_scholar_profile_url(author)
+
+                            if profile_url:
+                                h_index = get_h_index_from_scholar(profile_url)
+                            else:
+                                h_index = "Non trouvé"
+
+                            results.append({
+                                "chercheur": author,
+                                "h-index": h_index,
+                                "profil Google Scholar": profile_url if profile_url else "Non disponible",
+                                "thème": search_theme,
+                                "titre": title
+                            })
+                    except StopIteration:
+                        break
+
+                if results:
+                    df = pd.DataFrame(results)
+                    df["h-index"] = df["h-index"].astype(str)  
+                    st.success(f"Résultats pour le thème : {search_theme}")
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.warning("Aucun résultat trouvé pour ce thème.")
+
+            except Exception as e:
+                st.error(f"Une erreur s'est produite lors de la recherche : {e}")
+
+        else:
+            st.info("Entrez un thème pour afficher les résultats.")
+
+
+
+
+
+
 
 #Si on est sur la page About us
 elif st.session_state['page'] == "about":
