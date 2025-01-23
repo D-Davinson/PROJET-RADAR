@@ -150,6 +150,40 @@ def get_h_index_from_scholar(profile_url):
     else:
         return "Erreur de chargement"
 
+
+def get_author_profiles_from_scholar(search_url):
+    """Scrape les liens des profils Google Scholar des auteurs depuis la recherche Scholar."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(search_url, headers=headers)
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        # Trouver les sections contenant les auteurs
+        author_sections = soup.find_all("div", class_="gs_a")
+
+        author_profiles = {}
+        for section in author_sections:
+            author_link = section.find("a")
+            if author_link:
+                author_name = author_link.text.strip()
+                profile_url = "https://scholar.google.fr" + author_link["href"]
+                author_profiles[author_name] = profile_url
+
+        return author_profiles
+    return {}
+
+def scrape_full_name_from_scholar(profile_url):
+    """Scrape le nom complet de l'auteur depuis son profil Google Scholar."""
+    headers = {"User-Agent": "Mozilla/5.0"}
+    response = requests.get(profile_url, headers=headers)
+
+    if response.status_code == 200:
+        soup = BeautifulSoup(response.text, "html.parser")
+        name_element = soup.find("div", id="gsc_prf_in")
+
+        return name_element.text.strip() if name_element else "Non disponible"
+    return "Erreur de chargement"
     
 
 
@@ -674,7 +708,7 @@ elif st.session_state['page'] == "radar":
 
 
     elif search_option == "Thème de recherche":
-        # Interface Streamlit
+      # Interface Streamlit
       st.title("Recherche par Thème de Projet")
 
       search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
@@ -684,29 +718,30 @@ elif st.session_state['page'] == "radar":
               search_query = scholarly.search_pubs(search_theme)
               results = []
 
-              for _ in range(1):  # Limite à 1 résultat (ajuster selon besoin)
+              for _ in range(1):  # Limite à 1 publication (ajuster si besoin)
                   try:
                       publication = next(search_query)
-                      authors = publication['bib']['author']
                       title = publication['bib']['title']
+                      authors = publication['bib']['author']
+                      scholar_search_url = f"https://scholar.google.com/scholar?q={search_theme.replace(' ', '+')}"
 
-                      if isinstance(authors, list):
-                          authors_list = authors[:3]  # Prend les 3 premiers auteurs
-                      else:
-                          authors_list = authors.split(', ')[:3]
+                      # Scraper les vrais profils des auteurs depuis Google Scholar
+                      author_profiles = get_author_profiles_from_scholar(scholar_search_url)
 
-                      for author in authors_list:
-                          profile_url = get_scholar_profile_url(author)
-
-                          if profile_url:
+                      for author in authors[:3]:  # Prendre les 3 premiers auteurs
+                          if author in author_profiles:
+                              profile_url = author_profiles[author]
+                              full_name = scrape_full_name_from_scholar(profile_url)
                               h_index = get_h_index_from_scholar(profile_url)
                           else:
+                              profile_url = "Non disponible"
+                              full_name = author  # Si non trouvé, garde l'initiale
                               h_index = "Non trouvé"
 
                           results.append({
-                              "chercheur": author,
+                              "chercheur": full_name,
                               "h-index": h_index,
-                              "profil Google Scholar": profile_url if profile_url else "Non disponible",
+                              "profil Google Scholar": profile_url,
                               "thème": search_theme,
                               "titre": title
                           })
