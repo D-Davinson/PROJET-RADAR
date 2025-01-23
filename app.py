@@ -129,7 +129,6 @@ def get_scholar_profile_url(author_name):
         return f"https://scholar.google.fr/citations?hl=fr&user={scholar_id}"
     except StopIteration:
         return None
-    
 
 def get_h_index_from_scholar(profile_url):
     """Scrape le h-index depuis le profil Google Scholar."""
@@ -676,57 +675,57 @@ elif st.session_state['page'] == "radar":
 
     elif search_option == "Thème de recherche":
         # Interface Streamlit
-        st.title("Recherche par Thème de Projet")
+      st.title("Recherche par Thème de Projet")
 
-        search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
+      search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
 
-        if search_theme:
-            try:
-                search_query = scholarly.search_pubs(search_theme)
-                results = []
+      if search_theme:
+          try:
+              search_query = scholarly.search_pubs(search_theme)
+              results = []
 
-                for _ in range(5):  # Limite à 1 résultat (ajuster selon besoin)
-                    try:
-                        publication = next(search_query)
-                        authors = publication['bib']['author']
-                        title = publication['bib']['title']
+              for _ in range(1):  # Limite à 1 résultat (ajuster selon besoin)
+                  try:
+                      publication = next(search_query)
+                      authors = publication['bib']['author']
+                      title = publication['bib']['title']
 
-                        if isinstance(authors, list):
-                            authors_list = authors[:3]
-                        else:
-                            authors_list = authors.split(', ')[:3]
+                      if isinstance(authors, list):
+                          authors_list = authors[:3]  # Prend les 3 premiers auteurs
+                      else:
+                          authors_list = authors.split(', ')[:3]
 
-                        for author in authors_list:
-                            profile_url = get_scholar_profile_url(author)
+                      for author in authors_list:
+                          profile_url = get_scholar_profile_url(author)
 
-                            if profile_url:
-                                h_index = get_h_index_from_scholar(profile_url)
-                            else:
-                                h_index = "Non trouvé"
+                          if profile_url:
+                              h_index = get_h_index_from_scholar(profile_url)
+                          else:
+                              h_index = "Non trouvé"
 
-                            results.append({
-                                "chercheur": author,
-                                "h-index": h_index,
-                                "profil Google Scholar": profile_url if profile_url else "Non disponible",
-                                "thème": search_theme,
-                                "titre": title
-                            })
-                    except StopIteration:
-                        break
+                          results.append({
+                              "chercheur": author,
+                              "h-index": h_index,
+                              "profil Google Scholar": profile_url if profile_url else "Non disponible",
+                              "thème": search_theme,
+                              "titre": title
+                          })
+                  except StopIteration:
+                      break
 
-                if results:
-                    df = pd.DataFrame(results)
-                    df["h-index"] = df["h-index"].astype(str)  
-                    st.success(f"Résultats pour le thème : {search_theme}")
-                    st.dataframe(df, use_container_width=True, hide_index=True)
-                else:
-                    st.warning("Aucun résultat trouvé pour ce thème.")
+              if results:
+                  df = pd.DataFrame(results)
+                  df["h-index"] = df["h-index"].astype(str)  
+                  st.success(f"Résultats pour le thème : {search_theme}")
+                  st.dataframe(df, use_container_width=True, hide_index=True)
+              else:
+                  st.warning("Aucun résultat trouvé pour ce thème.")
 
-            except Exception as e:
-                st.error(f"Une erreur s'est produite lors de la recherche : {e}")
+          except Exception as e:
+              st.error(f"Une erreur s'est produite lors de la recherche : {e}")
 
-        else:
-            st.info("Entrez un thème pour afficher les résultats.")
+      else:
+          st.info("Entrez un thème pour afficher les résultats.")
 
 
 
