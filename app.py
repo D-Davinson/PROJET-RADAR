@@ -1,3 +1,4 @@
+import random
 import sys
 from datetime import datetime
 import re
@@ -6,6 +7,8 @@ import openai
 import requests
 from scholarly import scholarly
 import re
+import folium
+from streamlit_folium import folium_static
 # importation des librairies pour le traitement des données
 
 import streamlit as st # librairie de streamlit
@@ -98,6 +101,18 @@ page_bg = '''  <style>
         </style>
         '''
 st.markdown(page_bg, unsafe_allow_html=True)
+st.markdown(
+    """
+    <style>
+    .center-map {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True
+)
 
 
 
@@ -109,6 +124,13 @@ def order_by(dataframe, column, ascending=True):
 
   datacopy = dataframe.copy()
   return datacopy.sort_values(by=column, ascending=ascending)
+
+def get_random_location():
+    """Génère une position aléatoire réaliste sur Terre (évite l'océan)."""
+    lat = random.uniform(-60, 75)  # Limité pour éviter l'Antarctique
+    lon = random.uniform(-180, 180)
+    return round(lat, 6), round(lon, 6)
+
 
 def calculate_h_index(publications):
     publications_sorted = sorted(publications,key=lambda x: x.get("num_citations", 0), reverse=True)
@@ -132,24 +154,15 @@ def get_scholar_profile_url(author_name):
 
 def get_h_index_from_scholar(profile_url):
     """Scrape le h-index depuis le profil Google Scholar."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
-    }
+    headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(profile_url, headers=headers)
-    
+
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
-
-        # Sélectionner tous les éléments de la table des stats (Citations, h-index, i10-index)
         stats = soup.find_all("td", class_="gsc_rsb_std")
 
-        if len(stats) >= 2:  # h-index est la deuxième valeur dans cette table
-            return stats[2].text.strip()
-        else:
-            return "Non disponible"
-    else:
-        return "Erreur de chargement"
-
+        return int(stats[2].text.strip()) if len(stats) >= 2 else 0  # Convertit en int
+    return 0
 
 def get_author_profiles_from_scholar(search_url):
     """Scrape les liens des profils Google Scholar des auteurs depuis la recherche Scholar."""
@@ -163,12 +176,14 @@ def get_author_profiles_from_scholar(search_url):
         author_sections = soup.find_all("div", class_="gs_a")
 
         author_profiles = {}
+
         for section in author_sections:
-            author_link = section.find("a")
-            if author_link:
-                author_name = author_link.text.strip()
-                profile_url = "https://scholar.google.fr" + author_link["href"]
-                author_profiles[author_name] = profile_url
+            # Trouver tous les liens d'auteurs
+            author_links = section.find_all("a", href=True)
+            for link in author_links:
+                author_name = link.text.strip()
+                profile_url = "https://scholar.google.fr" + link["href"]
+                author_profiles[author_name] = profile_url  # Stocke chaque auteur et son lien
 
         return author_profiles
     return {}
@@ -712,55 +727,79 @@ elif st.session_state['page'] == "radar":
       st.title("Recherche par Thème de Projet")
 
       search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
+      h_index_threshold = st.number_input("Seuil minimum de h-index", min_value=0, value=10, step=1)
 
       if search_theme:
           try:
               search_query = scholarly.search_pubs(search_theme)
               results = []
 
-              for _ in range(1):  # Limite à 1 publication (ajuster si besoin)
+              for _ in range(10):  # Limite à 1 publication
                   try:
                       publication = next(search_query)
                       title = publication['bib']['title']
                       authors = publication['bib']['author']
                       scholar_search_url = f"https://scholar.google.com/scholar?q={search_theme.replace(' ', '+')}"
 
-                      # Scraper les vrais profils des auteurs depuis Google Scholar
                       author_profiles = get_author_profiles_from_scholar(scholar_search_url)
 
-                      for author in authors[:3]:  # Prendre les 3 premiers auteurs
-                          if author in author_profiles:
-                              profile_url = author_profiles[author]
+                      for author in authors[:10]:  # Prendre les 3 premiers auteurs
+                          matching_profile = next((profile for name, profile in author_profiles.items() if author in name), None)
+
+                          if matching_profile:
+                              profile_url = matching_profile
                               full_name = scrape_full_name_from_scholar(profile_url)
                               h_index = get_h_index_from_scholar(profile_url)
+                              latitude, longitude = get_random_location()
                           else:
                               profile_url = "Non disponible"
-                              full_name = author  # Si non trouvé, garde l'initiale
-                              h_index = "Non trouvé"
+                              full_name = author
+                              h_index = 0
+                              latitude, longitude = None, None
 
-                          results.append({
-                              "chercheur": full_name,
-                              "h-index": h_index,
-                              "profil Google Scholar": profile_url,
-                              "thème": search_theme,
-                              "titre": title
-                          })
+                          if h_index >= h_index_threshold:
+                              results.append({
+                                  "chercheur": full_name,
+                                  "h-index": h_index,
+                                  "titre": title,
+                                  "latitude": latitude,
+                                  "longitude": longitude
+                              })
                   except StopIteration:
                       break
 
               if results:
                   df = pd.DataFrame(results)
                   df["h-index"] = df["h-index"].astype(str)  
-                  st.success(f"Résultats pour le thème : {search_theme}")
+                  st.success(f"Résultats pour le thème : {search_theme} avec h-index > {h_index_threshold}")
                   st.dataframe(df, use_container_width=True, hide_index=True)
+
+                  # Affichage de la carte
+                  m = folium.Map(location=[20, 0], zoom_start=2)
+
+                  for index, row in df.iterrows():
+                      if row["latitude"] and row["longitude"]:
+                          folium.Marker(
+                              location=[row["latitude"], row["longitude"]],
+                              popup=f"{row['chercheur']} - h-index: {row['h-index']}",
+                              icon=folium.Icon(color="blue", icon="info-sign"),
+                          ).add_to(m)
+
+                  st.subheader("Visualisation Géographique des Chercheurs")
+                  st.markdown('<div class="center-map">', unsafe_allow_html=True)
+                  folium_static(m)  # Affichage de la carte
+                  st.markdown('</div>', unsafe_allow_html=True)
+
+
               else:
-                  st.warning("Aucun résultat trouvé pour ce thème.")
+                  st.warning(f"Aucun chercheur trouvé avec un h-index supérieur à {h_index_threshold}.")
 
           except Exception as e:
               st.error(f"Une erreur s'est produite lors de la recherche : {e}")
 
       else:
           st.info("Entrez un thème pour afficher les résultats.")
+
 
 
 
