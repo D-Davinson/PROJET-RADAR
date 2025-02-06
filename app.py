@@ -21,6 +21,12 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import csv
 
+# Configurez votre clé API GPT-4o
+openai.api_key = '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'
+
+OPENAI_API_KEY = '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'
+
+
 # st.set_option('server.enableCORS', True)
 
 # J'ai ajouté cette ligne pour éviter un warning de Streamlit
@@ -125,13 +131,6 @@ def order_by(dataframe, column, ascending=True):
   datacopy = dataframe.copy()
   return datacopy.sort_values(by=column, ascending=ascending)
 
-def get_random_location():
-    """Génère une position aléatoire réaliste sur Terre (évite l'océan)."""
-    lat = random.uniform(-60, 75)  # Limité pour éviter l'Antarctique
-    lon = random.uniform(-180, 180)
-    return round(lat, 6), round(lon, 6)
-
-
 def calculate_h_index(publications):
     publications_sorted = sorted(publications,key=lambda x: x.get("num_citations", 0), reverse=True)
     h_index = 0
@@ -142,68 +141,84 @@ def calculate_h_index(publications):
             break
     return h_index
 
+def get_random_location():
+    """Génère une position aléatoire réaliste sur Terre (évite l'océan)."""
+    lat = random.uniform(-60, 75)  # Limité pour éviter l'Antarctique
+    lon = random.uniform(-180, 180)
+    return round(lat, 6), round(lon, 6)
+
+
+author_cache = {}
+
+def get_random_location():
+    """Génère une position aléatoire réaliste sur Terre (évite l'océan)."""
+    lat = random.uniform(-60, 75)  # Limité pour éviter l'Antarctique
+    lon = random.uniform(-180, 180)
+    return round(lat, 6), round(lon, 6)
+
 def get_scholar_profile_url(author_name):
-    """Recherche l'auteur et récupère son URL Google Scholar."""
+    """Recherche l'auteur et récupère son URL Google Scholar. Utilise un cache."""
+    if author_name in author_cache:
+        return author_cache[author_name]
+
     search_query = scholarly.search_author(author_name)
     try:
-        author_info = next(search_query)  # Prend le premier résultat
+        author_info = next(search_query)
         scholar_id = author_info['scholar_id']
-        return f"https://scholar.google.fr/citations?hl=fr&user={scholar_id}"
+        profile_url = f"https://scholar.google.fr/citations?hl=fr&user={scholar_id}"
+        author_cache[author_name] = profile_url  # ✅ Stocker en cache
+        return profile_url
     except StopIteration:
         return None
 
 def get_h_index_from_scholar(profile_url):
-    """Scrape le h-index depuis le profil Google Scholar."""
+    """Scrape le h-index depuis le profil Google Scholar. Utilise un cache."""
+    if profile_url in author_cache:
+        return author_cache[profile_url]
+
     headers = {"User-Agent": "Mozilla/5.0"}
     response = requests.get(profile_url, headers=headers)
 
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
         stats = soup.find_all("td", class_="gsc_rsb_std")
-
-        return int(stats[2].text.strip()) if len(stats) >= 2 else 0  # Convertit en int
+        h_index = int(stats[2].text.strip()) if len(stats) >= 2 else 0
+        author_cache[profile_url] = h_index  # ✅ Stocker en cache
+        return h_index
     return 0
 
-def get_author_profiles_from_scholar(search_url):
-    """Scrape les liens des profils Google Scholar des auteurs depuis la recherche Scholar."""
+# ✅ Optimisation : Recherche groupée des auteurs avec Google Search (évite plusieurs requêtes Scholar)
+def get_author_profiles_from_google(authors):
+    """Recherche les profils des auteurs sur Google en une seule requête."""
+    query = f'site:scholar.google.com {" OR ".join([f"{author}" for author in authors])}'
+    search_url = f"https://www.google.com/search?q={query.replace(' ', '+')}"
     headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(search_url, headers=headers)
 
+    response = requests.get(search_url, headers=headers)
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
-
-        # Trouver les sections contenant les auteurs
-        author_sections = soup.find_all("div", class_="gs_a")
-
         author_profiles = {}
-
-        for section in author_sections:
-            # Trouver tous les liens d'auteurs
-            author_links = section.find_all("a", href=True)
-            for link in author_links:
-                author_name = link.text.strip()
-                profile_url = "https://scholar.google.fr" + link["href"]
-                author_profiles[author_name] = profile_url  # Stocke chaque auteur et son lien
-
+        for link in soup.find_all("a", href=True):
+            if "scholar.google.com/citations" in link["href"]:
+                name = link.text.strip()
+                author_profiles[name] = link["href"]
         return author_profiles
     return {}
 
-def scrape_full_name_from_scholar(profile_url):
-    """Scrape le nom complet de l'auteur depuis son profil Google Scholar."""
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(profile_url, headers=headers)
+# ✅ Optimisation des requêtes par thème
+def search_publications_by_theme(theme, max_results=5):
+    """Recherche des publications sur Google Scholar avec un nombre limité de requêtes."""
+    try:
+        search_query = scholarly.search_pubs(theme)
+        publications = [next(search_query) for _ in range(max_results)]
+        return publications
+    except StopIteration:
+        st.warning("Aucun résultat trouvé pour ce thème.")
+        return []
+  
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        name_element = soup.find("div", id="gsc_prf_in")
-
-        return name_element.text.strip() if name_element else "Non disponible"
-    return "Erreur de chargement"
-    
-
-
-# Fonction pour rechercher un auteur et son h-index
 def search_scholar_with_h_index(query, max_articles=5):
+    """Recherche un auteur sur Google Scholar et récupère son h-index et ses publications."""
     try:
         search_query = scholarly.search_author(query)
         author = scholarly.fill(next(search_query))  # Récupère le premier résultat
@@ -211,10 +226,10 @@ def search_scholar_with_h_index(query, max_articles=5):
         # Informations principales
         author_name = author.get("name", "N/A")
         affiliation = author.get("affiliation", "N/A")
-        h_index = calculate_h_index(author.get("publications", []))
+        h_index = author.get("hindex", 0)  # Directement depuis l'API au lieu de recalculer
         publications = author.get("publications", [])
-
-        # Publications
+        
+        # Publications limitées au nombre demandé
         articles = [
             {
                 "title": pub.get("bib", {}).get("title", "N/A"),
@@ -230,20 +245,8 @@ def search_scholar_with_h_index(query, max_articles=5):
     except Exception as e:
         st.error(f"An error occurred: {e}")
         return None
-    
 
-# Fonction pour rechercher des publications en fonction d'un thème
-def search_publications_by_theme(theme, max_results=10):
-    try:
-        search_query = scholarly.search_pubs(theme)
-        publications = [next(search_query) for _ in range(max_results)]
-        return publications
-    except StopIteration:
-        st.warning("No results found for this theme.")
-        return []
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-        return []
+
 
 
 
@@ -643,8 +646,6 @@ if 'page' not in st.session_state or st.session_state['page'] == ""  :
         histogram(after_filtre)
       elif(type_graphique == "Box Plot"):
         box_plot(after_filtre)
-      # Configurez votre clé API GPT-3
-      openai.api_key = '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'
       qst= dataframe.head(20).to_string()
       #st.write(qst)
       st.title("AI Assistant(Only the 20 first lines are selected)")
@@ -701,7 +702,6 @@ elif st.session_state['page'] == "radar":
     search_option = st.radio("Choisissez une option de recherche :", ["Chercheur", "Thème de recherche"])
 
     if search_option == "Chercheur":
-        # Interface existante pour la recherche par chercheur
         search_term = st.sidebar.text_input("Search Researcher", placeholder="Enter a researcher's name")
         max_articles = st.sidebar.slider("Max number of articles", 1, 20, 5)
 
@@ -721,87 +721,63 @@ elif st.session_state['page'] == "radar":
             else:
                 st.warning("Please enter a search term.")
 
-
     elif search_option == "Thème de recherche":
-      # Interface Streamlit
-      st.title("Recherche par Thème de Projet")
+        st.title("Recherche par Thème de Projet")
+        search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
+        h_index_threshold = st.number_input("Seuil minimum de h-index", min_value=0, value=10, step=1)
 
-      search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
-      h_index_threshold = st.number_input("Seuil minimum de h-index", min_value=0, value=10, step=1)
+        if search_theme:
+            try:
+                search_query = scholarly.search_pubs(search_theme)
+                results = []
+                author_names = []  # ✅ Stocker les auteurs pour une recherche groupée
 
-      if search_theme:
-          try:
-              search_query = scholarly.search_pubs(search_theme)
-              results = []
+                for _ in range(5):  # ✅ Limite à 5 publications pour éviter le bannissement
+                    try:
+                        publication = next(search_query)
+                        title = publication['bib']['title']
+                        authors = publication['bib']['author'][:3]  # ✅ Limite à 3 auteurs
 
-              for _ in range(10):  # Limite à 1 publication
-                  try:
-                      publication = next(search_query)
-                      title = publication['bib']['title']
-                      authors = publication['bib']['author']
-                      scholar_search_url = f"https://scholar.google.com/scholar?q={search_theme.replace(' ', '+')}"
+                        author_names.extend(authors)  # ✅ Ajout pour la recherche groupée
 
-                      author_profiles = get_author_profiles_from_scholar(scholar_search_url)
+                    except StopIteration:
+                        break
 
-                      for author in authors[:10]:  # Prendre les 3 premiers auteurs
-                          matching_profile = next((profile for name, profile in author_profiles.items() if author in name), None)
+                # ✅ Recherche groupée sur Google pour trouver les profils des auteurs
+                author_profiles = get_author_profiles_from_google(author_names)
 
-                          if matching_profile:
-                              profile_url = matching_profile
-                              full_name = scrape_full_name_from_scholar(profile_url)
-                              h_index = get_h_index_from_scholar(profile_url)
-                              latitude, longitude = get_random_location()
-                          else:
-                              profile_url = "Non disponible"
-                              full_name = author
-                              h_index = 0
-                              latitude, longitude = None, None
+                for author in author_names:
+                    profile_url = author_profiles.get(author, "Non disponible")
 
-                          if h_index >= h_index_threshold:
-                              results.append({
-                                  "chercheur": full_name,
-                                  "h-index": h_index,
-                                  "titre": title,
-                                  "latitude": latitude,
-                                  "longitude": longitude
-                              })
-                  except StopIteration:
-                      break
+                    if profile_url != "Non disponible":
+                        h_index = get_h_index_from_scholar(profile_url)
+                        latitude, longitude = get_random_location()
+                    else:
+                        h_index = 0
+                        latitude, longitude = None, None
 
-              if results:
-                  df = pd.DataFrame(results)
-                  df["h-index"] = df["h-index"].astype(str)  
-                  st.success(f"Résultats pour le thème : {search_theme} avec h-index > {h_index_threshold}")
-                  st.dataframe(df, use_container_width=True, hide_index=True)
+                    if h_index >= h_index_threshold:
+                        results.append({
+                            "chercheur": author,
+                            "h-index": h_index,
+                            "titre": title,
+                            "latitude": latitude,
+                            "longitude": longitude
+                        })
 
-                  # Affichage de la carte
-                  m = folium.Map(location=[20, 0], zoom_start=2)
+                if results:
+                    df = pd.DataFrame(results)
+                    df["h-index"] = df["h-index"].astype(str)  
+                    st.success(f"Résultats pour le thème : {search_theme} avec h-index > {h_index_threshold}")
+                    st.dataframe(df, use_container_width=True, hide_index=True)
+                else:
+                    st.warning(f"Aucun chercheur trouvé avec un h-index supérieur à {h_index_threshold}.")
 
-                  for index, row in df.iterrows():
-                      if row["latitude"] and row["longitude"]:
-                          folium.Marker(
-                              location=[row["latitude"], row["longitude"]],
-                              popup=f"{row['chercheur']} - h-index: {row['h-index']}",
-                              icon=folium.Icon(color="blue", icon="info-sign"),
-                          ).add_to(m)
+            except Exception as e:
+                st.error(f"Une erreur s'est produite lors de la recherche : {e}")
 
-                  st.subheader("Visualisation Géographique des Chercheurs")
-                  st.markdown('<div class="center-map">', unsafe_allow_html=True)
-                  folium_static(m)  # Affichage de la carte
-                  st.markdown('</div>', unsafe_allow_html=True)
-
-
-              else:
-                  st.warning(f"Aucun chercheur trouvé avec un h-index supérieur à {h_index_threshold}.")
-
-          except Exception as e:
-              st.error(f"Une erreur s'est produite lors de la recherche : {e}")
-
-      else:
-          st.info("Entrez un thème pour afficher les résultats.")
-
-
-
+        else:
+            st.info("Entrez un thème pour afficher les résultats.")
 
 
 
