@@ -125,81 +125,113 @@ def order_by(dataframe, column, ascending=True):
   datacopy = dataframe.copy()
   return datacopy.sort_values(by=column, ascending=ascending)
 
-def get_random_location():
-    """Génère une position aléatoire réaliste sur Terre (évite l'océan)."""
-    lat = random.uniform(-60, 75)  # Limité pour éviter l'Antarctique
-    lon = random.uniform(-180, 180)
-    return round(lat, 6), round(lon, 6)
+
+# API Key Perplexity (à remplacer par ta clé)
+PERPLEXITY_API_KEY = "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"
+client = openai.OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
-def calculate_h_index(publications):
-    publications_sorted = sorted(publications,key=lambda x: x.get("num_citations", 0), reverse=True)
-    h_index = 0
-    for idx, pub in enumerate(publications_sorted, start=1):
-        if pub.get("num_citations", 0) >= idx:
-            h_index = idx
-        else:
-            break
-    return h_index
-
-def get_scholar_profile_url(author_name):
-    """Recherche l'auteur et récupère son URL Google Scholar."""
-    search_query = scholarly.search_author(author_name)
+# ✅ Fonction pour récupérer les chercheurs associés à un thème
+def search_scholars_from_theme(theme, max_results=5):
+    """
+    Recherche des publications sur Google Scholar en fonction d'un thème
+    et extrait les chercheurs impliqués.
+    """
     try:
-        author_info = next(search_query)  # Prend le premier résultat
-        scholar_id = author_info['scholar_id']
-        return f"https://scholar.google.fr/citations?hl=fr&user={scholar_id}"
-    except StopIteration:
-        return None
+        search_query = scholarly.search_pubs(theme)
+        results = []
+        publications = []  # Stocker les publications pour les vérifier ensuite
+        
+        for _ in range(max_results):  # Limiter les requêtes pour éviter le blocage
+            try:
+                publication = next(search_query)
+                title = publication['bib'].get('title', "Titre inconnu")
+                authors = publication['bib'].get('author', [])
+                
+                if isinstance(authors, str):  # Si les auteurs sont sous forme de string, les séparer
+                    authors = authors.split(", ")
 
-def get_h_index_from_scholar(profile_url):
-    """Scrape le h-index depuis le profil Google Scholar."""
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(profile_url, headers=headers)
+                # Stocker les publications et leurs auteurs
+                publications.append(title)
+                
+                for author in authors:
+                    results.append({"chercheur": author.strip(), "publication": title})
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        stats = soup.find_all("td", class_="gsc_rsb_std")
+            except StopIteration:
+                break
+        
+        return results, publications  # Retourne les chercheurs et les publications associées
 
-        return int(stats[2].text.strip()) if len(stats) >= 2 else 0  # Convertit en int
-    return 0
+    except Exception as e:
+        st.error(f"Erreur lors de la recherche sur Google Scholar : {e}")
+        return [], []
 
-def get_author_profiles_from_scholar(search_url):
-    """Scrape les liens des profils Google Scholar des auteurs depuis la recherche Scholar."""
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(search_url, headers=headers)
+# ✅ Fonction pour interroger Perplexity API pour récupérer les infos des chercheurs
+def get_scholar_info_perplexity(theme, authors, publications):
+    """
+    Utilise Perplexity AI pour récupérer les informations des chercheurs sur Google Scholar :
+    - Nom complet (depuis le profil Scholar)
+    - Affiliation (juste sous le nom)
+    - H-index (extrait précisément de la bonne ligne)
+    - Adresse de l’affiliation (trouvée via Google)
+    - Vérification des publications pour s’assurer que c’est la bonne personne
+    - Lien vers leur profil Scholar (seulement s'il existe)
+    """
+    if not authors or not publications:
+        return "Aucun chercheur ou publication valide à analyser."
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Tu es un assistant expert en recherche académique. "
+                "Ta mission est d'extraire les informations des chercheurs listés ci-dessous "
+                "en interrogeant uniquement **Google Scholar** et en t’assurant que ce sont bien eux avec une recherche."
+            ),
+        },
+        {   
+            "role": "user",
+            "content": (
+                f"Effectue une recherche sur **Google Scholar** pour retrouver les profils des chercheurs listés ci-dessous, "
+                f"en rapport avec le thème **'{theme}'**.\n\n"
+                
+                "### 📌 **Instructions précises** :\n"
+                "1. **Recherche chaque chercheur sur Google Scholar en utilisant d'abord son Initiale.Nom**.\n"
+                "2. **Si aucun profil exact n’est trouvé, effectue une recherche plus large sur Google Scholar**.\n"
+                "3. **Vérifie que le profil trouvé correspond bien à la personne** en comparant avec **les publications suivantes** :\n"
+                f"{', '.join(publications)}\n"
+                "4. **Si le profil ne correspond pas à ses publications, ne pas l'afficher**.\n"
+                "5. **Depuis la page de profil Google Scholar, récupère** :\n"
+                "   - **Nom complet** (affiché en haut du profil Scholar).\n"
+                "   - **Affiliation** (affichée juste en dessous du nom du chercheur).\n"
+                "   - **H-index** (⚠️ **ATTENTION : Le H-index se trouve sur la ligne 'indice h' dans le tableau des citations.** Prends la valeur sous la colonne 'Toutes' situé entre citations et indice i10).\n"
+                
+                "6. **Recherche l’adresse exacte de l'affiliation** sur Google, et retourne **Ville + Pays**.\n\n"
 
-        # Trouver les sections contenant les auteurs
-        author_sections = soup.find_all("div", class_="gs_a")
+                "### 📌 **Format du tableau de sortie** :\n"
+                "| Nom Prénom | Affiliation | Adresse | H-index |\n"
+                "|------------|------------|---------|---------|----------------|\n"
+                
+                f"Voici la liste des chercheurs extraits de Google Scholar : {', '.join(authors)}\n"
+                "**⚠️ Important** :\n"
+                "- **Ne pas inventer de profils**.\n"
+                "- **Si le profil Scholar n’existe pas, ne pas afficher le chercheur**.\n"
+                "- **Comparer le profil avec les publications trouvées pour éviter les erreurs d’homonymie**.\n"
+                "- **Le H-index est toujours sur la ligne 'indice h' et la colonne 'Toutes'.**\n"
+                "- **Utilise Google pour trouver l’adresse complète de l’affiliation**.\n"
+            ),
+        },
+    ]
 
-        author_profiles = {}
+    response = client.chat.completions.create(
+        model="sonar-pro",  # Modèle Perplexity
+        messages=messages,
+    )
 
-        for section in author_sections:
-            # Trouver tous les liens d'auteurs
-            author_links = section.find_all("a", href=True)
-            for link in author_links:
-                author_name = link.text.strip()
-                profile_url = "https://scholar.google.fr" + link["href"]
-                author_profiles[author_name] = profile_url  # Stocke chaque auteur et son lien
+    return response.choices[0].message.content if response else None
 
-        return author_profiles
-    return {}
 
-def scrape_full_name_from_scholar(profile_url):
-    """Scrape le nom complet de l'auteur depuis son profil Google Scholar."""
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(profile_url, headers=headers)
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
-        name_element = soup.find("div", id="gsc_prf_in")
-
-        return name_element.text.strip() if name_element else "Non disponible"
-    return "Erreur de chargement"
-    
 
 
 # Fonction pour rechercher un auteur et son h-index
@@ -230,20 +262,6 @@ def search_scholar_with_h_index(query, max_articles=5):
     except Exception as e:
         st.error(f"An error occurred: {e}")
         return None
-    
-
-# Fonction pour rechercher des publications en fonction d'un thème
-def search_publications_by_theme(theme, max_results=10):
-    try:
-        search_query = scholarly.search_pubs(theme)
-        publications = [next(search_query) for _ in range(max_results)]
-        return publications
-    except StopIteration:
-        st.warning("No results found for this theme.")
-        return []
-    except Exception as e:
-        st.error(f"An error occurred: {e}")
-        return []
 
 
 
@@ -723,83 +741,34 @@ elif st.session_state['page'] == "radar":
 
 
     elif search_option == "Thème de recherche":
-      # Interface Streamlit
-      st.title("Recherche par Thème de Projet")
+      # ✅ Interface Streamlit
+      st.title("Radar Google Scholar avec Perplexity AI")
 
-      search_theme = st.text_input("Recherchez un thème", placeholder="Entrez un thème, ex: Intelligence Artificielle")
-      h_index_threshold = st.number_input("Seuil minimum de h-index", min_value=0, value=10, step=1)
+      # 🔍 **Recherche par Thème**
+      search_theme = st.text_input("Entrez un thème de recherche", placeholder="Ex: Intelligence Artificielle")
 
-      if search_theme:
-          try:
-              search_query = scholarly.search_pubs(search_theme)
-              results = []
+      if st.button("Rechercher les chercheurs"):
+          if search_theme:
+              with st.spinner("Recherche en cours sur Google Scholar..."):
+                  scholar_data, publications = search_scholars_from_theme(search_theme, max_results=5)
 
-              for _ in range(10):  # Limite à 1 publication
-                  try:
-                      publication = next(search_query)
-                      title = publication['bib']['title']
-                      authors = publication['bib']['author']
-                      scholar_search_url = f"https://scholar.google.com/scholar?q={search_theme.replace(' ', '+')}"
+                  if scholar_data:
+                      # ✅ Extraction des noms de chercheurs uniques
+                      authors_list = list(set(scholar["chercheur"] for scholar in scholar_data))
 
-                      author_profiles = get_author_profiles_from_scholar(scholar_search_url)
+                      with st.spinner("Récupération des informations des chercheurs via Perplexity..."):
+                          results_text = get_scholar_info_perplexity(search_theme, authors_list, publications)
 
-                      for author in authors[:10]:  # Prendre les 3 premiers auteurs
-                          matching_profile = next((profile for name, profile in author_profiles.items() if author in name), None)
-
-                          if matching_profile:
-                              profile_url = matching_profile
-                              full_name = scrape_full_name_from_scholar(profile_url)
-                              h_index = get_h_index_from_scholar(profile_url)
-                              latitude, longitude = get_random_location()
+                          if results_text:
+                              st.subheader("Informations Complètes sur les Chercheurs")
+                              st.text(results_text)
                           else:
-                              profile_url = "Non disponible"
-                              full_name = author
-                              h_index = 0
-                              latitude, longitude = None, None
+                              st.warning("Aucune information trouvée via Perplexity.")
 
-                          if h_index >= h_index_threshold:
-                              results.append({
-                                  "chercheur": full_name,
-                                  "h-index": h_index,
-                                  "titre": title,
-                                  "latitude": latitude,
-                                  "longitude": longitude
-                              })
-                  except StopIteration:
-                      break
-
-              if results:
-                  df = pd.DataFrame(results)
-                  df["h-index"] = df["h-index"].astype(str)  
-                  st.success(f"Résultats pour le thème : {search_theme} avec h-index > {h_index_threshold}")
-                  st.dataframe(df, use_container_width=True, hide_index=True)
-
-                  # Affichage de la carte
-                  m = folium.Map(location=[20, 0], zoom_start=2)
-
-                  for index, row in df.iterrows():
-                      if row["latitude"] and row["longitude"]:
-                          folium.Marker(
-                              location=[row["latitude"], row["longitude"]],
-                              popup=f"{row['chercheur']} - h-index: {row['h-index']}",
-                              icon=folium.Icon(color="blue", icon="info-sign"),
-                          ).add_to(m)
-
-                  st.subheader("Visualisation Géographique des Chercheurs")
-                  st.markdown('<div class="center-map">', unsafe_allow_html=True)
-                  folium_static(m)  # Affichage de la carte
-                  st.markdown('</div>', unsafe_allow_html=True)
-
-
-              else:
-                  st.warning(f"Aucun chercheur trouvé avec un h-index supérieur à {h_index_threshold}.")
-
-          except Exception as e:
-              st.error(f"Une erreur s'est produite lors de la recherche : {e}")
-
-      else:
-          st.info("Entrez un thème pour afficher les résultats.")
-
+                  else:
+                      st.warning("Aucun chercheur trouvé ou données incorrectes.")
+          else:
+              st.warning("Veuillez entrer un thème avant de rechercher.")
 
 
 
@@ -835,5 +804,4 @@ elif st.session_state['page'] == "about":
       with col22:
         st.header(f"{personnes[i+1]['prenom']} {personnes[i+1]['nom']}")
         st.subheader(personnes[i+1]["role"])
-
 
