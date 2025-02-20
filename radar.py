@@ -10,6 +10,9 @@ import re
 import folium
 from streamlit_folium import folium_static
 import itertools
+import pycountry  # Pour récupérer la liste des pays standardisés
+
+
 # importation des librairies pour le traitement des données
 
 import streamlit as st # librairie de streamlit
@@ -159,7 +162,7 @@ def extract_institution_name(affiliation):
 
 
 # ✅ Étape 1 : Recherche des chercheurs via un thème (Google Scholar)
-def search_scholars_from_theme(theme, max_results=40):
+def search_scholars_from_theme(theme, max_results=20):
     """
     Recherche des publications sur Google Scholar en fonction d'un thème
     et extrait les auteurs impliqués.
@@ -266,15 +269,9 @@ def scrape_scholar_profile(scholar_url):
     if response.status_code == 200:
         soup = BeautifulSoup(response.text, "html.parser")
 
-        # 🏆 Récupération du Nom complet (double vérification)
-        name_tag = soup.find("div", id="gsc_prf_in")
-        full_name = name_tag.text.strip() if name_tag else "Nom inconnu"
-
-        # 🏢 Récupération de l'Affiliation
         affiliation_tag = soup.find("div", class_="gsc_prf_il")
         affiliation = affiliation_tag.text.strip() if affiliation_tag else "Affiliation inconnue"
 
-        # 📊 Récupération du H-index
         stats = soup.find_all("td", class_="gsc_rsb_std")
         h_index = stats[2].text.strip() if len(stats) >= 3 else "Non disponible"  # 3e élément = H-index
 
@@ -302,7 +299,7 @@ def clean_affiliation(affiliation):
 # ✅ Fonction pour récupérer l’adresse via Perplexity
 def get_affiliation_address_perplexity(affiliations):
     """
-    Utilise Perplexity AI pour rechercher l'adresse complète et le pays des institutions listées.
+    Uses Perplexity AI to search for the full address and country of the listed institutions.
     """
     if not affiliations:
         return {}
@@ -311,19 +308,17 @@ def get_affiliation_address_perplexity(affiliations):
         {
             "role": "system",
             "content": (
-                "Tu es un expert en recherche d'adresses académiques. "
-                "Ta mission est de récupérer **l'adresse** "
-                "des institutions listées ci-dessous en effectuant des **recherche sur Google**."
+                "You are an expert in academic address retrieval. "
+                "Your task is to find the **complete address** "
+                "of the listed institutions by performing **Google searches**."
             ),
         },
         {   
             "role": "user",
             "content": (
-                "Utilise Google pour trouver l’adresse complète de l’affiliation** "
-                "de lors qu'il y a ecrit sur l'affliation "
-                "de chaque institution listée ci-dessous.\n\n"
-                "**Renvoie le résultat sous ce format STRICTEMENT :**\n"
-                "Institution | Adresse | Pays\n"
+                "Use Google to find the **full address** of each listed affiliation.\n\n"
+                "**Return the result in this STRICT format:**\n"
+                "Institution | Address | Country\n"
                 "------------------------------------------------\n"
                 f"{', '.join(affiliations)}"
             ),
@@ -337,8 +332,9 @@ def get_affiliation_address_perplexity(affiliations):
 
     if response:
         raw_text = response.choices[0].message.content
-        return parse_affiliation_addresses(raw_text)  # Convertir la réponse en dictionnaire utilisable
+        return parse_affiliation_addresses(raw_text)  # Convert the response into a usable dictionary
     return None
+
 
 # ✅ Fonction pour analyser la réponse de Perplexity et extraire les adresses
 def parse_affiliation_addresses(response_text):
@@ -371,65 +367,9 @@ def find_best_match(original_affiliation, affiliation_data):
 
 
 
-
-# ✅ Étape 6 : Exécution complète
-def get_scholar_info(theme):
-    """
-    1️⃣ Recherche les chercheurs sur Google Scholar en fonction du thème  
-    2️⃣ Récupère leur nom complet via Perplexity  
-    3️⃣ Trouve leur profil Scholar via `scholarly`  
-    4️⃣ Scrape leur affiliation et H-index  
-    5️⃣ Demande à Perplexity l'adresse de l'affiliation  
-    """
-    print(f"🔍 Recherche des chercheurs pour le thème : {theme}...")
-    authors = search_scholars_from_theme(theme)
-
-    if not authors:
-        return "Aucun chercheur trouvé pour ce thème."
-
-    print("🔍 Récupération des noms complets via Perplexity...")
-    scholar_names = get_scholar_names_perplexity(authors)
-
-    if not scholar_names:
-        return "Erreur lors de la récupération des noms."
-
-    scholar_info_list = []
-    affiliations_list = []
-
-    for full_name in scholar_names.split("\n"):  # Perplexity peut retourner plusieurs lignes de noms
-        print(f"🔍 Recherche du profil Scholar pour {full_name}...")
-        scholar_url = find_scholar_profile(full_name)
-
-        if scholar_url:
-            print(f"✅ Profil trouvé ! Scraping des informations...")
-            scholar_info = scrape_scholar_profile(scholar_url)
-            scholar_info_list.append(scholar_info)
-            if scholar_info["Affiliation"] != "Affiliation inconnue":
-                affiliations_list.append(scholar_info["Affiliation"])
-        else:
-            scholar_info_list.append({"Nom": full_name, "Affiliation": "Non trouvée", "H-index": "Non disponible", "Profil": "Non disponible"})
-
-    print("🔍 Récupération des adresses d’affiliations via Perplexity...")
-    affiliation_addresses = get_affiliation_address_perplexity(affiliations_list)
-
-    # Ajout des adresses aux résultats
-    for scholar in scholar_info_list:
-        scholar["Adresse"] = affiliation_addresses.get(scholar["Affiliation"], "Non disponible")
-
-    return scholar_info_list
-
-
-
-
-
-
-
-
-
-
 def expand_affiliation_abbreviations(affiliations):
     """
-    Utilise Perplexity AI pour obtenir le nom complet des affiliations abrégées.
+    Uses Perplexity AI to obtain the full name of abbreviated affiliations.
     """
     if not affiliations:
         return {}
@@ -438,17 +378,17 @@ def expand_affiliation_abbreviations(affiliations):
         {
             "role": "system",
             "content": (
-                "Tu es un expert en affiliations académiques. "
-                "Ta mission est de convertir les abréviations d’institutions en noms complets "
-                "en utilisant des recherches sur Google si nécessaire."
+                "You are an expert in academic affiliations. "
+                "Your task is to convert institution abbreviations into their full names "
+                "using Google searches if necessary."
             ),
         },
         {
             "role": "user",
             "content": (
-                "Voici une liste d'affiliations qui peuvent être abrégées. "
-                "Renvoie leur **nom complet** sous ce format STRICTEMENT :\n"
-                "Abréviation | Nom complet\n"
+                "Here is a list of affiliations that may be abbreviated. "
+                "Return their **full name** in this STRICT format:\n"
+                "Abbreviation | Full Name\n"
                 "-----------------------------------\n"
                 f"{', '.join(affiliations)}"
             ),
@@ -485,10 +425,14 @@ def parse_expanded_affiliations(response_text):
 
 
 
-
-
-
-
+def standardize_country(country_name):
+    """
+    Convertit les variantes de pays en leur nom officiel selon pycountry.
+    """
+    try:
+        return pycountry.countries.lookup(country_name).name
+    except LookupError:
+        return country_name  # Garde l'original s'il n'est pas trouvé
 
 
 
@@ -1010,10 +954,19 @@ elif st.session_state['page'] == "radar":
       # 🔍 **Recherche par Thème**
       search_theme = st.text_input("Entrez un thème de recherche", placeholder="Ex: Intelligence Artificielle")
 
+      # 🔍 **Filtre sur le H-index**
+      h_index_min = st.number_input("Filtrer les chercheurs avec un H-index supérieur à :", min_value=0, value=0, step=1)
+
+      # ✅ Récupérer la liste standardisée des pays (en anglais)
+      country_list = sorted([country.name for country in pycountry.countries])
+
+      # 🔍 **Filtre par Pays** (Liste déroulante multiple)
+      selected_countries = st.multiselect("Filtrer par pays :", country_list, default=[])
+
       if st.button("Rechercher les chercheurs"):
           if search_theme:
               with st.spinner("Recherche en cours sur Google Scholar..."):
-                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=30)
+                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=100)
 
                   if authors_list and publications:
                       with st.spinner("Récupération des noms complets via Perplexity (avec vérification des publications)..."):
@@ -1076,9 +1029,20 @@ elif st.session_state['page'] == "radar":
 
                                       print("Chercheur mis à jour:", scholar)
 
+                              # ✅ Conversion du H-index en numérique et suppression des valeurs non disponibles
                               df = pd.DataFrame(scholar_info_list)
-                              df = df[df["H-index"] != "Non disponible"]
-                              st.subheader("Informations Complètes sur les Chercheurs")
+                              df["Pays"] = df["Pays"].apply(standardize_country)
+                              df["H-index"] = pd.to_numeric(df["H-index"], errors="coerce")  # Convertir en nombre
+                              df = df.dropna(subset=["H-index"])  # Supprimer les NaN
+
+                              # ✅ Filtrage selon le H-index minimum défini par l'utilisateur
+                              df = df[df["H-index"] >= h_index_min]
+
+                              # ✅ Filtrage selon les pays sélectionnés
+                              if selected_countries:
+                                df = df[df["Pays"].isin(selected_countries)]
+                              # ✅ Affichage des chercheurs filtrés
+                              st.subheader(f"Informations Complètes sur les Chercheurs (H-index ≥ {h_index_min})")
                               st.dataframe(df, use_container_width=True, hide_index=True)
 
                           else:
@@ -1087,6 +1051,7 @@ elif st.session_state['page'] == "radar":
                       st.warning("Aucun chercheur trouvé pour ce thème.")
           else:
               st.warning("Veuillez entrer un thème avant de rechercher.")
+
 
 
 
