@@ -9,6 +9,7 @@ from scholarly import scholarly
 import re
 import folium
 from streamlit_folium import folium_static
+import itertools
 # importation des librairies pour le traitement des données
 
 import streamlit as st # librairie de streamlit
@@ -131,119 +132,34 @@ PERPLEXITY_API_KEY = "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"
 client = openai.OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
-# ✅ Fonction pour récupérer les chercheurs associés à un thème
-def search_scholars_from_theme(theme, max_results=5):
+
+
+
+# ✅ Fonction pour extraire dynamiquement le nom de l'institution
+def extract_institution_name(affiliation):
     """
-    Recherche des publications sur Google Scholar en fonction d'un thème
-    et extrait les chercheurs impliqués.
+    Extrait automatiquement le nom de l’institution à partir de l’affiliation complète.
+    Fonctionne pour toute institution académique ou entreprise.
     """
-    try:
-        search_query = scholarly.search_pubs(theme)
-        results = []
-        publications = []  # Stocker les publications pour les vérifier ensuite
-        
-        for _ in range(max_results):  # Limiter les requêtes pour éviter le blocage
-            try:
-                publication = next(search_query)
-                title = publication['bib'].get('title', "Titre inconnu")
-                authors = publication['bib'].get('author', [])
-                
-                if isinstance(authors, str):  # Si les auteurs sont sous forme de string, les séparer
-                    authors = authors.split(", ")
+    # Liste des mots-clés indicateurs d'une institution
+    keywords = ["University", "Institute", "College", "School", "Academy", "Inc.", "Corp.", "Laboratory", "Research Center"]
+    
+    # Séparer les termes de l'affiliation
+    words = affiliation.split(",")
 
-                # Stocker les publications et leurs auteurs
-                publications.append(title)
-                
-                for author in authors:
-                    results.append({"chercheur": author.strip(), "publication": title})
+    for word in words:
+        word = word.strip()
+        if any(kw in word for kw in keywords):  # Vérifie si un mot-clé est présent
+            return word
 
-            except StopIteration:
-                break
-        
-        return results, publications  # Retourne les chercheurs et les publications associées
-
-    except Exception as e:
-        st.error(f"Erreur lors de la recherche sur Google Scholar : {e}")
-        return [], []
-
-def get_scholar_info_perplexity(theme, authors, publications):
-    """
-    Utilise Perplexity AI pour récupérer UNIQUEMENT les informations des chercheurs depuis leur page Google Scholar :
-    - Nom complet (scrapé depuis `div id="gsc_prf_in"`)
-    - Affiliation (scrapé depuis `div class="gsc_prf_il"`)
-    - H-index (scrapé depuis `td class="gsc_rsb_std"` sous 'Toutes')
-    - Lien vers leur profil Google Scholar
-    """
-    if not authors or not publications:
-        return "Aucun chercheur ou publication valide à analyser."
-
-    messages = [
-        {
-            "role": "system",
-            "content": (
-                "Tu es un assistant expert en recherche académique. "
-                "Ta mission est d'extraire **exactement** les informations demandées en scrapant "
-                "**UNIQUEMENT les profils Google Scholar des chercheurs listés.**"
-            ),
-        },
-        {   
-            "role": "user",
-            "content": (
-                f"**Étape 1** : Recherche sur **Google Scholar** les profils des chercheurs ci-dessous en lien avec le thème **'{theme}'**.\n\n"
-                
-                "### 📌 **Instructions STRICTES de scraping sur Google Scholar** :\n"
-                "1. **Effectue une recherche Google Scholar en format Initiale.Nom**.\n"
-                "2. **Si aucun profil exact n'est trouvé, effectue une recherche plus large sur Google Scholar**.\n"
-                "3. **Vérifie que le profil trouvé correspond bien à la personne en comparant avec les publications suivantes** :\n"
-                f"{', '.join(publications)}\n"
-                "4. **Si le profil ne correspond pas à ses publications, NE PAS l'afficher**.\n\n"
-
-                "### 📌 **Scraping des données UNIQUEMENT depuis la page de profil Google Scholar** :\n"
-                "   - **Nom complet** → Extrait UNIQUEMENT la valeur depuis la balise **`div id='gsc_prf_in'`**.\n"
-                "   - **Affiliation** → Extrait UNIQUEMENT la valeur depuis la balise **`div class='gsc_prf_il'`**.\n"
-                "     - ⚠️ **Si plusieurs affiliations sont listées, les récupérer toutes sans exception, séparées par une virgule.**\n"
-                "     - ⚠️ **Si la balise `gsc_prf_il` n'existe pas, mettre 'Non disponible' au lieu d'inventer une affiliation.**\n"
-                "     - 🚨 **Ne jamais extraire une affiliation depuis une autre source que Google Scholar.**\n"
-            
-
-                "🚨 **Interdictions absolues** :\n"
-                "- **Ne pas inventer d’affiliation.**\n"
-                "- **Ne pas récupérer l’affiliation depuis une autre source que `gsc_prf_il`.**\n"
-                "- **Ne pas chercher d’autres valeurs approximatives si l’information n’est pas trouvée dans Scholar.**\n\n"
-                
-                "### 📌 **Format de sortie** :\n"
-                "| Nom Prénom | Affiliation | H-index\n"
-                "|------------|------------|---------\n"
-                
-                f"Voici la liste des chercheurs extraits de Google Scholar : {', '.join(authors)}\n"
-
-                "**⚠️ Règles de validation :**\n"
-                "- **Les valeurs doivent être extraites UNIQUEMENT depuis la page Google Scholar.**\n"
-                "- **Le H-index doit être pris sous la colonne 'Toutes' uniquement.**\n"
-                "- **L’affiliation doit être extraite **EXCLUSIVEMENT** de `div class='gsc_prf_il'`.**\n"
-                "- **Si l'affiliation est absente, retourne 'Non disponible' au lieu d'une valeur erronée.**\n"
-                "- **Ne pas utiliser d'autres sources que Google Scholar.**\n"
-            ),
-        },
-    ]
-
-    response = client.chat.completions.create(
-        model="sonar-pro",  # Modèle Perplexity
-        messages=messages,
-    )
-
-    return response.choices[0].message.content if response else None
-
-
-
-
-
+    # Si aucun mot-clé n'est trouvé, on retourne l'affiliation complète
+    return affiliation
 
 
 
 
 # ✅ Étape 1 : Recherche des chercheurs via un thème (Google Scholar)
-def search_scholars_from_theme(theme, max_results=20):
+def search_scholars_from_theme(theme, max_results=40):
     """
     Recherche des publications sur Google Scholar en fonction d'un thème
     et extrait les auteurs impliqués.
@@ -323,8 +239,6 @@ def get_scholar_names_perplexity(authors, publications):
     return None
 
 
-    return response.choices[0].message.content if response else None
-
 
 # ✅ Étape 3 : Recherche du profil Scholar via `scholarly`
 def find_scholar_profile(full_name):
@@ -369,7 +283,23 @@ def scrape_scholar_profile(scholar_url):
     return {"Nom": "Erreur", "Affiliation": "Erreur", "H-index": "Erreur", "Profil": scholar_url}
 
 
-# ✅ Étape 5 : Recherche de l’adresse de l’affiliation avec Perplexity
+# ✅ Fonction pour nettoyer les affiliations avant de les envoyer à Perplexity
+def clean_affiliation(affiliation):
+    """
+    Nettoie l'affiliation en retirant les titres et départements pour normaliser les noms des institutions.
+    """
+    if not affiliation or affiliation.lower() in ["non trouvée", "affiliation inconnue"]:
+        return None  # Exclure les affiliations non valides
+
+    # Supprimer les titres académiques et département
+    remove_words = ["PhD Candidate", "Professor of", "Department of", "Faculty of", "Institute of", "Lab of", "Graduate Student"]
+    
+    for word in remove_words:
+        affiliation = re.sub(rf"\b{word}\b", "", affiliation, flags=re.IGNORECASE).strip()
+
+    return affiliation.strip()
+
+# ✅ Fonction pour récupérer l’adresse via Perplexity
 def get_affiliation_address_perplexity(affiliations):
     """
     Utilise Perplexity AI pour rechercher l'adresse complète et le pays des institutions listées.
@@ -382,18 +312,18 @@ def get_affiliation_address_perplexity(affiliations):
             "role": "system",
             "content": (
                 "Tu es un expert en recherche d'adresses académiques. "
-                "Ta mission est de récupérer **l'adresse complète (incluant ville et pays)** "
-                "des institutions listées ci-dessous en effectuant une **recherche sur Google.com**."
+                "Ta mission est de récupérer **l'adresse** "
+                "des institutions listées ci-dessous en effectuant des **recherche sur Google**."
             ),
         },
         {   
             "role": "user",
             "content": (
-                "Effectue une **recherche sur Google.com** pour déterminer **l'adresse complète** "
+                "Utilise Google pour trouver l’adresse complète de l’affiliation** "
                 "de lors qu'il y a ecrit sur l'affliation "
                 "de chaque institution listée ci-dessous.\n\n"
                 "**Renvoie le résultat sous ce format STRICTEMENT :**\n"
-                "Institution | Adresse complète | Pays\n"
+                "Institution | Adresse | Pays\n"
                 "------------------------------------------------\n"
                 f"{', '.join(affiliations)}"
             ),
@@ -410,8 +340,7 @@ def get_affiliation_address_perplexity(affiliations):
         return parse_affiliation_addresses(raw_text)  # Convertir la réponse en dictionnaire utilisable
     return None
 
-
-
+# ✅ Fonction pour analyser la réponse de Perplexity et extraire les adresses
 def parse_affiliation_addresses(response_text):
     """
     Convertit la réponse brute de Perplexity en dictionnaire {Affiliation: (Adresse, Pays)}.
@@ -428,6 +357,17 @@ def parse_affiliation_addresses(response_text):
             affiliation_map[institution] = (address, country)
 
     return affiliation_map
+
+# ✅ Fonction pour trouver la meilleure correspondance
+def find_best_match(original_affiliation, affiliation_data):
+    """
+    Trouve la meilleure correspondance approximative entre une affiliation originale et les résultats de Perplexity.
+    """
+    for key in affiliation_data.keys():
+        if key.lower() in original_affiliation.lower():  # Vérification approximative
+            return affiliation_data[key]  # Retourne (adresse, pays)
+
+    return ("Non disponible", "Non disponible")
 
 
 
@@ -477,6 +417,72 @@ def get_scholar_info(theme):
         scholar["Adresse"] = affiliation_addresses.get(scholar["Affiliation"], "Non disponible")
 
     return scholar_info_list
+
+
+
+
+
+
+
+
+
+
+def expand_affiliation_abbreviations(affiliations):
+    """
+    Utilise Perplexity AI pour obtenir le nom complet des affiliations abrégées.
+    """
+    if not affiliations:
+        return {}
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Tu es un expert en affiliations académiques. "
+                "Ta mission est de convertir les abréviations d’institutions en noms complets "
+                "en utilisant des recherches sur Google si nécessaire."
+            ),
+        },
+        {
+            "role": "user",
+            "content": (
+                "Voici une liste d'affiliations qui peuvent être abrégées. "
+                "Renvoie leur **nom complet** sous ce format STRICTEMENT :\n"
+                "Abréviation | Nom complet\n"
+                "-----------------------------------\n"
+                f"{', '.join(affiliations)}"
+            ),
+        },
+    ]
+
+    response = client.chat.completions.create(
+        model="sonar-pro",
+        messages=messages,
+    )
+
+    if response:
+        raw_text = response.choices[0].message.content
+        return parse_expanded_affiliations(raw_text)
+    
+    return {}
+
+def parse_expanded_affiliations(response_text):
+    """
+    Convertit la réponse brute de Perplexity en dictionnaire {Abréviation: Nom complet}.
+    """
+    abbreviation_map = {}
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        parts = line.split("|")
+        if len(parts) == 2:
+            abbreviation = parts[0].strip()
+            full_name = parts[1].strip()
+            abbreviation_map[abbreviation] = full_name
+
+    return abbreviation_map
+
+
 
 
 
@@ -1005,64 +1011,82 @@ elif st.session_state['page'] == "radar":
       search_theme = st.text_input("Entrez un thème de recherche", placeholder="Ex: Intelligence Artificielle")
 
       if st.button("Rechercher les chercheurs"):
-        if search_theme:
-            with st.spinner("Recherche en cours sur Google Scholar..."):
-                authors_list, publications = search_scholars_from_theme(search_theme, max_results=5)
+          if search_theme:
+              with st.spinner("Recherche en cours sur Google Scholar..."):
+                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=30)
 
-                if authors_list and publications:
-                    with st.spinner("Récupération des noms complets via Perplexity (avec vérification des publications)..."):
-                        complete_names = get_scholar_names_perplexity(authors_list, publications)
+                  if authors_list and publications:
+                      with st.spinner("Récupération des noms complets via Perplexity (avec vérification des publications)..."):
+                          complete_names = get_scholar_names_perplexity(authors_list, publications)
 
-                        if complete_names:
-                            scholar_info_list = []
-                            affiliations_list = []
+                          if complete_names:
+                              scholar_info_list = []
+                              affiliations_list = []
 
-                            with st.spinner("Recherche des profils Google Scholar et scraping des données..."):
-                                for full_name in complete_names.split("\n"):
-                                    scholar_url = find_scholar_profile(full_name)
+                              with st.spinner("Recherche des profils Google Scholar et scraping des données..."):
+                                  for full_name in complete_names.split("\n"):
+                                      scholar_url = find_scholar_profile(full_name)
 
-                                    if scholar_url:
-                                        scholar_info = scrape_scholar_profile(scholar_url)
-                                        scholar_info_list.append(scholar_info)
+                                      if scholar_url:
+                                          scholar_info = scrape_scholar_profile(scholar_url)
+                                          scholar_info_list.append(scholar_info)
 
-                                        if scholar_info["Affiliation"] != "Affiliation inconnue":
-                                            affiliations_list.append(scholar_info["Affiliation"])
-                                    else:
-                                        scholar_info_list.append({
-                                            "Nom": full_name,
-                                            "Affiliation": "Non trouvée",
-                                            "H-index": "Non disponible",
-                                            "Profil": "Non disponible",
-                                            "Adresse": "Non disponible",
-                                            "Pays": "Non disponible"
-                                        })
+                                          if scholar_info["Affiliation"] != "Affiliation inconnue":
+                                              affiliations_list.append(scholar_info["Affiliation"])
+                                      else:
+                                          scholar_info_list.append({
+                                              "Nom": full_name,
+                                              "Affiliation": "Non trouvée",
+                                              "H-index": "Non disponible",
+                                              "Profil": "Non disponible",
+                                              "Adresse": "Non disponible",
+                                              "Pays": "Non disponible"
+                                          })
 
-                            with st.spinner("Recherche des adresses et pays des affiliations via Perplexity..."):
-                                affiliation_data = get_affiliation_address_perplexity(affiliations_list)
+                              with st.spinner("Recherche des adresses et pays des affiliations via Perplexity..."):
+                                  # Nettoyage et filtrage des affiliations
+                                  affiliations_list = [clean_affiliation(scholar["Affiliation"]) for scholar in scholar_info_list if scholar["Affiliation"] != "Affiliation inconnue"]
+                                  affiliations_list = list(filter(None, affiliations_list))  # Supprime les None
+                                  
+                                  # Étape 1 : Demander à Perplexity d'expliciter les abréviations
+                                  print("Affiliations avant expansion:", affiliations_list)
+                                  expanded_affiliations = expand_affiliation_abbreviations(affiliations_list)
+                                  print("Abréviations développées:", expanded_affiliations)
 
-                                if not isinstance(affiliation_data, dict):
-                                    affiliation_data = {}
+                                  # Remplacer les abréviations par leur nom complet si possible
+                                  affiliations_list = [expanded_affiliations.get(aff, aff) for aff in affiliations_list]
 
-                                for scholar in scholar_info_list:
-                                    aff = scholar["Affiliation"]
-                                    if aff in affiliation_data:
-                                        scholar["Adresse"], scholar["Pays"] = affiliation_data[aff]
-                                    else:
-                                        scholar["Adresse"] = "Non disponible"
-                                        scholar["Pays"] = "Non disponible"
+                                  # Étape 2 : Recherche des adresses avec les affiliations corrigées
+                                  print("Affiliations envoyées à Perplexity:", affiliations_list)
+                                  affiliation_data = get_affiliation_address_perplexity(affiliations_list)
+                                  print("Données renvoyées par Perplexity:", affiliation_data)
 
-                            df = pd.DataFrame(scholar_info_list)
-                            df = df[df["H-index"] != "Non disponible"]
+                                  if not isinstance(affiliation_data, dict):
+                                      affiliation_data = {}
 
-                            st.subheader("Informations Complètes sur les Chercheurs")
-                            st.dataframe(df, use_container_width=True, hide_index=True)
+                                  # Mise à jour des chercheurs avec adresses et pays
+                                  for scholar in scholar_info_list:
+                                      original_affiliation = scholar["Affiliation"]
+                                      cleaned_affiliation = clean_affiliation(original_affiliation)
 
-                        else:
-                            st.warning("Aucune information trouvée via Perplexity.")
-                else:
-                    st.warning("Aucun chercheur trouvé pour ce thème.")
-        else:
-            st.warning("Veuillez entrer un thème avant de rechercher.")
+                                      if cleaned_affiliation and cleaned_affiliation in affiliation_data:
+                                          scholar["Adresse"], scholar["Pays"] = affiliation_data[cleaned_affiliation]
+                                      else:
+                                          scholar["Adresse"], scholar["Pays"] = find_best_match(original_affiliation, affiliation_data)
+
+                                      print("Chercheur mis à jour:", scholar)
+
+                              df = pd.DataFrame(scholar_info_list)
+                              df = df[df["H-index"] != "Non disponible"]
+                              st.subheader("Informations Complètes sur les Chercheurs")
+                              st.dataframe(df, use_container_width=True, hide_index=True)
+
+                          else:
+                              st.warning("Aucune information trouvée via Perplexity.")
+                  else:
+                      st.warning("Aucun chercheur trouvé pour ce thème.")
+          else:
+              st.warning("Veuillez entrer un thème avant de rechercher.")
 
 
 
