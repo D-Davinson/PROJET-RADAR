@@ -131,7 +131,7 @@ def order_by(dataframe, column, ascending=True):
 
 
 # API Key Perplexity (à remplacer par ta clé)
-PERPLEXITY_API_KEY = "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"
+PERPLEXITY_API_KEY = "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"
 client = openai.OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
 
@@ -162,7 +162,7 @@ def extract_institution_name(affiliation):
 
 
 # ✅ Étape 1 : Recherche des chercheurs via un thème (Google Scholar)
-def search_scholars_from_theme(theme, max_results=20):
+def search_scholars_from_theme(theme, max_results=25):
     """
     Recherche des publications sur Google Scholar en fonction d'un thème
     et extrait les auteurs impliqués.
@@ -203,8 +203,8 @@ def search_scholars_from_theme(theme, max_results=20):
 # ✅ Étape 2 : Utiliser Perplexity pour obtenir le NOM COMPLET
 def get_scholar_names_perplexity(authors, publications):
     """
-    Utilise Perplexity AI pour récupérer UNIQUEMENT le nom complet des chercheurs,
-    en vérifiant que ces noms sont bien associés aux publications trouvées.
+    Uses Perplexity AI to retrieve ONLY the full names of researchers,
+    verifying that these names are indeed associated with the found publications.
     """
     if not authors or not publications:
         return None
@@ -213,21 +213,21 @@ def get_scholar_names_perplexity(authors, publications):
         {
             "role": "system",
             "content": (
-                "Tu es un expert en recherche académique. "
-                "Ta mission est de récupérer le **nom complet** des chercheurs listés "
-                "et de **vérifier qu'ils sont bien auteurs** des publications trouvées sur Google Scholar."
+                "You are an expert in academic research. "
+                "Your task is to retrieve the **full names** of the listed researchers "
+                "and **verify that they are indeed the authors** of the publications found on Google Scholar."
             ),
         },
         {   
             "role": "user",
             "content": (
-                "Effectue une **recherche sur Google Scholar** pour retrouver le **nom complet** "
-                "des chercheurs listés ci-dessous, en rapport avec leurs travaux.\n\n"
-                "**⚠️ Vérifie impérativement que ces chercheurs sont bien les auteurs des publications ci-dessous.**\n"
-                "**Si un nom trouvé n'est pas relié aux publications, NE PAS L’INCLURE.**\n\n"
-                f"📚 **Publications trouvées :** {', '.join(publications)}\n\n"
-                f"👨‍🔬 **Liste des chercheurs extraits de Google Scholar :** {', '.join(authors)}\n\n"
-                "**Ne renvoie que la liste des noms complets valides, un par ligne.**"
+                "Perform a **search on Google Scholar** to retrieve the **full names** "
+                "of the researchers listed below, based on their work.\n\n"
+                "**⚠️ It is crucial to verify that these researchers are indeed the authors of the publications listed below.**\n"
+                "**If a found name is not linked to the publications, DO NOT INCLUDE IT.**\n\n"
+                f"📚 **Found publications:** {', '.join(publications)}\n\n"
+                f"👨‍🔬 **List of researchers extracted from Google Scholar:** {', '.join(authors)}\n\n"
+                "**Return only the list of valid full names, one per line.**"
             ),
         },
     ]
@@ -258,26 +258,64 @@ def find_scholar_profile(full_name):
         return None
 
 
-# ✅ Étape 4 : Scraping du profil Scholar pour récupérer Affiliation et H-index
-def scrape_scholar_profile(scholar_url):
+from serpapi import GoogleSearch
+import re
+
+SERPAPI_KEY = "987383c7bbc42848c3ae81b9d760591a01be5644bc2a0c8f5c463b5ec74f90b0"
+
+def get_scholar_profile_serpapi(scholar_url):
     """
-    Récupère l'affiliation et le H-index d'un chercheur en scrapant son profil Google Scholar.
+    Utilise SerpAPI pour récupérer l'affiliation et le H-index d'un chercheur via son profil Google Scholar.
     """
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(scholar_url, headers=headers)
 
-    if response.status_code == 200:
-        soup = BeautifulSoup(response.text, "html.parser")
+    # ✅ Extraire l'ID utilisateur de l'URL du profil Google Scholar
+    match = re.search(r"user=([a-zA-Z0-9_-]+)", scholar_url)
+    if not match:
+        return {
+            "Nom": "Erreur",
+            "Affiliation": "Erreur",
+            "H-index": "Erreur",
+            "Profil": scholar_url
+        }
+    
+    scholar_id = match.group(1)
 
-        affiliation_tag = soup.find("div", class_="gsc_prf_il")
-        affiliation = affiliation_tag.text.strip() if affiliation_tag else "Affiliation inconnue"
+    params = {
+        "engine": "google_scholar_author",
+        "author_id": scholar_id,
+        "api_key": SERPAPI_KEY,
+    }
 
-        stats = soup.find_all("td", class_="gsc_rsb_std")
-        h_index = stats[2].text.strip() if len(stats) >= 3 else "Non disponible"  # 3e élément = H-index
+    search = GoogleSearch(params)
+    results = search.get_dict()
 
-        return {"Nom": full_name, "Affiliation": affiliation, "H-index": h_index, "Profil": scholar_url}
+    if "author" in results:
+        profile = results["author"]
+        full_name = profile.get("name", "Nom inconnu")
+        affiliation = profile.get("affiliations", "Affiliation inconnue")
 
-    return {"Nom": "Erreur", "Affiliation": "Erreur", "H-index": "Erreur", "Profil": scholar_url}
+        # 📊 **Extraction correcte du H-index**
+        h_index = "Non disponible"
+        cited_by_table = results.get("cited_by", {}).get("table", [])
+
+        for entry in cited_by_table:
+            if "h_index" in entry:
+                h_index = entry["h_index"].get("all", "Non disponible")  # Prendre la valeur "all"
+                break  # On arrête la boucle dès qu'on trouve le bon champ
+
+        return {
+            "Nom": full_name,
+            "Affiliation": affiliation,
+            "H-index": h_index,
+            "Profil": scholar_url
+        }
+
+    return {
+        "Nom": "Erreur",
+        "Affiliation": "Erreur",
+        "H-index": "Erreur",
+        "Profil": scholar_url
+    }
 
 
 # ✅ Fonction pour nettoyer les affiliations avant de les envoyer à Perplexity
@@ -966,7 +1004,7 @@ elif st.session_state['page'] == "radar":
       if st.button("Rechercher les chercheurs"):
           if search_theme:
               with st.spinner("Recherche en cours sur Google Scholar..."):
-                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=100)
+                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=25)
 
                   if authors_list and publications:
                       with st.spinner("Récupération des noms complets via Perplexity (avec vérification des publications)..."):
@@ -981,7 +1019,7 @@ elif st.session_state['page'] == "radar":
                                       scholar_url = find_scholar_profile(full_name)
 
                                       if scholar_url:
-                                          scholar_info = scrape_scholar_profile(scholar_url)
+                                          scholar_info = get_scholar_profile_serpapi(scholar_url)
                                           scholar_info_list.append(scholar_info)
 
                                           if scholar_info["Affiliation"] != "Affiliation inconnue":
@@ -991,7 +1029,6 @@ elif st.session_state['page'] == "radar":
                                               "Nom": full_name,
                                               "Affiliation": "Non trouvée",
                                               "H-index": "Non disponible",
-                                              "Profil": "Non disponible",
                                               "Adresse": "Non disponible",
                                               "Pays": "Non disponible"
                                           })
@@ -1002,17 +1039,13 @@ elif st.session_state['page'] == "radar":
                                   affiliations_list = list(filter(None, affiliations_list))  # Supprime les None
                                   
                                   # Étape 1 : Demander à Perplexity d'expliciter les abréviations
-                                  print("Affiliations avant expansion:", affiliations_list)
                                   expanded_affiliations = expand_affiliation_abbreviations(affiliations_list)
-                                  print("Abréviations développées:", expanded_affiliations)
 
                                   # Remplacer les abréviations par leur nom complet si possible
                                   affiliations_list = [expanded_affiliations.get(aff, aff) for aff in affiliations_list]
 
                                   # Étape 2 : Recherche des adresses avec les affiliations corrigées
-                                  print("Affiliations envoyées à Perplexity:", affiliations_list)
                                   affiliation_data = get_affiliation_address_perplexity(affiliations_list)
-                                  print("Données renvoyées par Perplexity:", affiliation_data)
 
                                   if not isinstance(affiliation_data, dict):
                                       affiliation_data = {}
@@ -1042,6 +1075,7 @@ elif st.session_state['page'] == "radar":
                               if selected_countries:
                                 df = df[df["Pays"].isin(selected_countries)]
                               # ✅ Affichage des chercheurs filtrés
+                              df = df.drop(columns=["Profil"], errors="ignore")
                               st.subheader(f"Informations Complètes sur les Chercheurs (H-index ≥ {h_index_min})")
                               st.dataframe(df, use_container_width=True, hide_index=True)
 
@@ -1089,4 +1123,3 @@ elif st.session_state['page'] == "about":
       with col22:
         st.header(f"{personnes[i+1]['prenom']} {personnes[i+1]['nom']}")
         st.subheader(personnes[i+1]["role"])
-
