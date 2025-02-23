@@ -1,7 +1,7 @@
 openai
 scholarly
 pycountry
-serpapi
+google-search-results
 python-dotenv
 streamlit
 seaborn
