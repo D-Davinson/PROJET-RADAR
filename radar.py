@@ -2,7 +2,6 @@ import sys
 from datetime import datetime
 import re
 import openai
-import requests
 from scholarly import scholarly
 import re
 import pycountry  # Pour récupérer la liste des pays standardisés
