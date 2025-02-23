@@ -4,7 +4,7 @@ import re
 import openai
 from scholarly import scholarly
 import re
-import pycountry  # Pour récupérer la liste des pays standardisés
+import pycountry
 from serpapi import GoogleSearch
 import re
 from dotenv import load_dotenv
