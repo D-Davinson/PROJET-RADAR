@@ -1,0 +1,9 @@
+openai
+scholarly
+pycountry
+google-search-results
+python-dotenv
+streamlit
+seaborn
+matplotlib
+pandas

@@ -1,19 +1,14 @@
-import random
 import sys
 from datetime import datetime
 import re
-from bs4 import BeautifulSoup
 import openai
-import requests
 from scholarly import scholarly
 import re
-import folium
-from streamlit_folium import folium_static
-import itertools
-import pycountry  # To retrieve the list of standardized countries
+import pycountry  # Pour récupérer la liste des pays standardisés
 from serpapi import GoogleSearch
 import re
-
+from dotenv import load_dotenv
+import os
 
 # Importing libraries for data processing
 
@@ -26,6 +21,8 @@ import matplotlib.pyplot as plt
 # Data processing library
 import pandas as pd
 import csv
+
+load_dotenv()
 
 # st.set_option('server.enableCORS', True)
 
@@ -141,8 +138,8 @@ def order_by(dataframe, column, ascending=True):
 
 ############################################### API KEY PERPLEXITY ###################################################################
 
-PERPLEXITY_API_KEY = "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"
-client = openai.OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
+
+client = openai.OpenAI(api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https://api.perplexity.ai")
 
 ######################################################################################################################################
 
@@ -242,9 +239,6 @@ def find_scholar_profile(full_name):
 
 #####################################  STEP 4: SCRAP H-INDEX AND AFFLIATION  #################################################################
 
-# API KEY SERPAPI -> 5000 search ( Developer PLAN )
-SERPAPI_KEY = "987383c7bbc42848c3ae81b9d760591a01be5644bc2a0c8f5c463b5ec74f90b0"
-
 def get_scholar_profile_serpapi(scholar_url):
     """Use SerpAPI to retrieve the affiliation and H-index of a researcher via their Google Scholar profile."""
 
@@ -263,7 +257,7 @@ def get_scholar_profile_serpapi(scholar_url):
     params = {
         "engine": "google_scholar_author",
         "author_id": scholar_id,
-        "api_key": SERPAPI_KEY,
+        "api_key": os.getenv("SERPAPI_KEY"),
     }
 
     search = GoogleSearch(params)
