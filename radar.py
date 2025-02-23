@@ -11,6 +11,8 @@ import folium
 from streamlit_folium import folium_static
 import itertools
 import pycountry  # Pour récupérer la liste des pays standardisés
+from serpapi import GoogleSearch
+import re
 
 
 # importation des librairies pour le traitement des données
@@ -130,38 +132,25 @@ def order_by(dataframe, column, ascending=True):
   return datacopy.sort_values(by=column, ascending=ascending)
 
 
-# API Key Perplexity (à remplacer par ta clé)
+
+
+
+###########################################  WORK M2MIAI -> PROJECT RADAR  ###########################################################
+
+
+
+############################################### API KEY PERPLEXITY ###################################################################
+
 PERPLEXITY_API_KEY = "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"
 client = openai.OpenAI(api_key=PERPLEXITY_API_KEY, base_url="https://api.perplexity.ai")
 
+######################################################################################################################################
 
 
 
 
-# ✅ Fonction pour extraire dynamiquement le nom de l'institution
-def extract_institution_name(affiliation):
-    """
-    Extrait automatiquement le nom de l’institution à partir de l’affiliation complète.
-    Fonctionne pour toute institution académique ou entreprise.
-    """
-    # Liste des mots-clés indicateurs d'une institution
-    keywords = ["University", "Institute", "College", "School", "Academy", "Inc.", "Corp.", "Laboratory", "Research Center"]
-    
-    # Séparer les termes de l'affiliation
-    words = affiliation.split(",")
 
-    for word in words:
-        word = word.strip()
-        if any(kw in word for kw in keywords):  # Vérifie si un mot-clé est présent
-            return word
-
-    # Si aucun mot-clé n'est trouvé, on retourne l'affiliation complète
-    return affiliation
-
-
-
-
-# ✅ Étape 1 : Recherche des chercheurs via un thème (Google Scholar)
+###########################################  STEP 1 : SEARCH THEME FROM GOOGLE SCHOLAR  ##############################################
 def search_scholars_from_theme(theme, max_results=25):
     """
     Recherche des publications sur Google Scholar en fonction d'un thème
@@ -172,10 +161,10 @@ def search_scholars_from_theme(theme, max_results=25):
     """
     try:
         search_query = scholarly.search_pubs(theme)
-        authors_list = set()  # Pour éviter les doublons
-        publications_list = []  # Stocker les publications
+        authors_list = set()
+        publications_list = []  # Stock all publications
 
-        for _ in range(max_results):  # Limite pour éviter le blocage
+        for _ in range(max_results):  # Limit for time exucution
             try:
                 publication = next(search_query)
                 title = publication['bib'].get('title', "Titre inconnu")
@@ -200,7 +189,7 @@ def search_scholars_from_theme(theme, max_results=25):
 
 
 
-# ✅ Étape 2 : Utiliser Perplexity pour obtenir le NOM COMPLET
+###################################  STEP 2: USE PERPLEXITY FOR FOUND ALL THE NAMES AND SURNAME  ##################################
 def get_scholar_names_perplexity(authors, publications):
     """
     Uses Perplexity AI to retrieve ONLY the full names of researchers,
@@ -243,7 +232,7 @@ def get_scholar_names_perplexity(authors, publications):
 
 
 
-# ✅ Étape 3 : Recherche du profil Scholar via `scholarly`
+########################################## STEP 3: FOUND THE PROFIL WITH SCHOLARLY  ###########################################################
 def find_scholar_profile(full_name):
     """
     Recherche un chercheur sur Google Scholar via `scholarly`
@@ -258,9 +247,11 @@ def find_scholar_profile(full_name):
         return None
 
 
-from serpapi import GoogleSearch
-import re
 
+
+#####################################  STEP 4: SCRAP H-INDEX AND AFFLIATION  #################################################################
+
+# API KEY SERPAPI -> 5000 search ( Developer PLAN )
 SERPAPI_KEY = "987383c7bbc42848c3ae81b9d760591a01be5644bc2a0c8f5c463b5ec74f90b0"
 
 def get_scholar_profile_serpapi(scholar_url):
@@ -268,7 +259,7 @@ def get_scholar_profile_serpapi(scholar_url):
     Utilise SerpAPI pour récupérer l'affiliation et le H-index d'un chercheur via son profil Google Scholar.
     """
 
-    # ✅ Extraire l'ID utilisateur de l'URL du profil Google Scholar
+    # # Extract ID user with URL profil GOOGLE SCHOLAR using REGEX syntax
     match = re.search(r"user=([a-zA-Z0-9_-]+)", scholar_url)
     if not match:
         return {
@@ -294,14 +285,14 @@ def get_scholar_profile_serpapi(scholar_url):
         full_name = profile.get("name", "Nom inconnu")
         affiliation = profile.get("affiliations", "Affiliation inconnue")
 
-        # 📊 **Extraction correcte du H-index**
+        # Extract H-index
         h_index = "Non disponible"
         cited_by_table = results.get("cited_by", {}).get("table", [])
 
         for entry in cited_by_table:
             if "h_index" in entry:
-                h_index = entry["h_index"].get("all", "Non disponible")  # Prendre la valeur "all"
-                break  # On arrête la boucle dès qu'on trouve le bon champ
+                h_index = entry["h_index"].get("all", "Non disponible")
+                break  # Stop loop when we found the info
 
         return {
             "Nom": full_name,
@@ -318,13 +309,13 @@ def get_scholar_profile_serpapi(scholar_url):
     }
 
 
-# ✅ Fonction pour nettoyer les affiliations avant de les envoyer à Perplexity
+###################################  STEP 5: CLEAN THE RESULT GIVE BY PERPLEXITY -> INDEXATION RESEARCH ################################# 
 def clean_affiliation(affiliation):
     """
     Nettoie l'affiliation en retirant les titres et départements pour normaliser les noms des institutions.
     """
     if not affiliation or affiliation.lower() in ["non trouvée", "affiliation inconnue"]:
-        return None  # Exclure les affiliations non valides
+        return None
 
     # Supprimer les titres académiques et département
     remove_words = ["PhD Candidate", "Professor of", "Department of", "Faculty of", "Institute of", "Lab of", "Graduate Student"]
@@ -334,7 +325,31 @@ def clean_affiliation(affiliation):
 
     return affiliation.strip()
 
-# ✅ Fonction pour récupérer l’adresse via Perplexity
+
+
+#####################################  STEP 6: PARSE AFFLIATION ADRESSES ############################################################# 
+
+def parse_affiliation_addresses(response_text):
+    """
+    Convertit la réponse brute de Perplexity en dictionnaire {Affiliation: (Adresse, Pays)}.
+    """
+    affiliation_map = {}
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        parts = line.split("|")
+        if len(parts) == 3:
+            institution = parts[0].strip()
+            address = parts[1].strip()
+            country = parts[2].strip()
+            affiliation_map[institution] = (address, country)
+
+    return affiliation_map
+
+
+
+
+###################################  STEP 7: GET ADRESSES WITH PERPLEXITY -> SCRAP INTELLIGENT ######################################### 
 def get_affiliation_address_perplexity(affiliations):
     """
     Uses Perplexity AI to search for the full address and country of the listed institutions.
@@ -370,27 +385,12 @@ def get_affiliation_address_perplexity(affiliations):
 
     if response:
         raw_text = response.choices[0].message.content
-        return parse_affiliation_addresses(raw_text)  # Convert the response into a usable dictionary
+        return parse_affiliation_addresses(raw_text)
     return None
 
 
-# ✅ Fonction pour analyser la réponse de Perplexity et extraire les adresses
-def parse_affiliation_addresses(response_text):
-    """
-    Convertit la réponse brute de Perplexity en dictionnaire {Affiliation: (Adresse, Pays)}.
-    """
-    affiliation_map = {}
-    lines = response_text.strip().split("\n")
 
-    for line in lines:
-        parts = line.split("|")
-        if len(parts) == 3:
-            institution = parts[0].strip()
-            address = parts[1].strip()
-            country = parts[2].strip()
-            affiliation_map[institution] = (address, country)
-
-    return affiliation_map
+#####################################  STEP 8: MATCHING PROCESS BETWEEN AFFLIATION DATA AND PERPLEXITY ################################ 
 
 # ✅ Fonction pour trouver la meilleure correspondance
 def find_best_match(original_affiliation, affiliation_data):
@@ -404,6 +404,29 @@ def find_best_match(original_affiliation, affiliation_data):
     return ("Non disponible", "Non disponible")
 
 
+
+
+#####################################  STEP 9: PARSE ABBREVIATED AFFLIATION DATA ################################################ 
+
+def parse_expanded_affiliations(response_text):
+    """
+    Convertit la réponse brute de Perplexity en dictionnaire {Abréviation: Nom complet}.
+    """
+    abbreviation_map = {}
+    lines = response_text.strip().split("\n")
+
+    for line in lines:
+        parts = line.split("|")
+        if len(parts) == 2:
+            abbreviation = parts[0].strip()
+            full_name = parts[1].strip()
+            abbreviation_map[abbreviation] = full_name
+
+    return abbreviation_map
+
+
+
+#####################################  STEP 10 : PROCESS FOR GIVE FULL NAME TO ABBREVIATED AFFLIATION DATA ############################### 
 
 def expand_affiliation_abbreviations(affiliations):
     """
@@ -444,23 +467,8 @@ def expand_affiliation_abbreviations(affiliations):
     
     return {}
 
-def parse_expanded_affiliations(response_text):
-    """
-    Convertit la réponse brute de Perplexity en dictionnaire {Abréviation: Nom complet}.
-    """
-    abbreviation_map = {}
-    lines = response_text.strip().split("\n")
 
-    for line in lines:
-        parts = line.split("|")
-        if len(parts) == 2:
-            abbreviation = parts[0].strip()
-            full_name = parts[1].strip()
-            abbreviation_map[abbreviation] = full_name
-
-    return abbreviation_map
-
-
+#####################################  STEP 11 : STANDARD COUNTRY LIBARIES ############################################ 
 
 
 def standardize_country(country_name):
@@ -470,13 +478,22 @@ def standardize_country(country_name):
     try:
         return pycountry.countries.lookup(country_name).name
     except LookupError:
-        return country_name  # Garde l'original s'il n'est pas trouvé
+        return country_name 
+
+
+######################################################################################################################
 
 
 
-
-
-
+def calculate_h_index(publications):
+    publications_sorted = sorted(publications,key=lambda x: x.get("num_citations", 0), reverse=True)
+    h_index = 0
+    for idx, pub in enumerate(publications_sorted, start=1):
+        if pub.get("num_citations", 0) >= idx:
+            h_index = idx
+        else:
+            break
+    return h_index
 
 
 # Fonction pour rechercher un auteur et son h-index
@@ -507,6 +524,12 @@ def search_scholar_with_h_index(query, max_articles=5):
     except Exception as e:
         st.error(f"An error occurred: {e}")
         return None
+
+
+
+##################################################################################################################################
+##################################################################################################################################
+##################################################################################################################################
 
 
 
@@ -1102,7 +1125,8 @@ elif st.session_state['page'] == "about":
     {"nom": "Sopegue Soro", "prenom": "Yaya", "role": "Chef de projet MOA", "image": "https://i.pinimg.com/564x/5b/3f/56/5b3f56d89084ff2bd55cb482b752186a.jpg"},
     {"nom": "Chahet", "prenom": "Sid Ali", "role": "Chef de projet MOE", "image": "https://i.pinimg.com/564x/28/c8/f2/28c8f26756e59662e3cbcec3e8ac5922.jpg"},
     {"nom": "Camara", "prenom": "Aichetou", "role": "Architecte projet", "image": "https://i.pinimg.com/564x/3d/85/96/3d85965b24cfec4339cbe2661275bae5.jpg"},
-    {"nom": "Belfekroun", "prenom": "Charaf", "role": "Expert data analyste", "image": "https://i.pinimg.com/564x/38/f6/9e/38f69e68a850e021a9b963f35fb80424.jpg"}
+    {"nom": "Belfekroun", "prenom": "Charaf", "role": "Expert data analyste", "image": "https://i.pinimg.com/564x/38/f6/9e/38f69e68a850e021a9b963f35fb80424.jpg"},
+    {"nom": "DOGLAS PRINCE", "prenom": "Davinson", "role": "Developpeur IA", "image": ""}
   ]
 
   # Affichage des divs
