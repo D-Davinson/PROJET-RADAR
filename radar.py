@@ -2,14 +2,9 @@ import random
 import sys
 from datetime import datetime
 import re
-from bs4 import BeautifulSoup
 import openai
-import requests
 from scholarly import scholarly
 import re
-import folium
-from streamlit_folium import folium_static
-import itertools
 import pycountry  # Pour récupérer la liste des pays standardisés
 from serpapi import GoogleSearch
 import re
