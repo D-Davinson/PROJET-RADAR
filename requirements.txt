@@ -3,6 +3,10 @@ scholarly
 pycountry
 google-search-results
 python-dotenv
+certifi
+folium
+streamlit-folium
+geopy
 streamlit
 seaborn
 matplotlib

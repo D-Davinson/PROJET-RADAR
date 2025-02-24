@@ -9,6 +9,14 @@ from serpapi import GoogleSearch
 import re
 from dotenv import load_dotenv
 import os
+import certifi
+os.environ["SSL_CERT_FILE"] = certifi.where()
+
+import folium
+from streamlit_folium import folium_static
+from geopy.geocoders import Nominatim
+from geopy.exc import GeocoderTimedOut
+from geopy.distance import geodesic
 
 # Importing libraries for data processing
 
@@ -328,19 +336,24 @@ def parse_affiliation_addresses(response_text):
 
 
 
-###################################  STEP 7: GET ADRESSES WITH PERPLEXITY -> SCRAP INTELLIGENT ######################################### 
+###################################  STEP 7: GET ADRESSES WITH PERPLEXITY -> SCRAP INTELLIGENT / BI-WORD ######################################### 
 def get_affiliation_address_perplexity(affiliations):
-    """Uses Perplexity AI to search for the full address and country of the listed institutions."""
+    """Uses Perplexity AI to search for the full address and country of the listed institutions using bi-word indexing."""
     if not affiliations:
         return {}
 
+    # Create bi-words for improve the accuracy of research
+    bi_word_affiliations = [f"{affiliations[i]} {affiliations[i+1]}" for i in range(len(affiliations)-1)]
+    
     messages = [
         {
             "role": "system",
             "content": (
                 "You are an expert in academic address retrieval. "
                 "Your task is to find the **complete address** "
-                "of the listed institutions by performing **Google searches**."
+                "of the listed institutions/societies by performing **Google searches**."
+                "Use bi-word indexing to refine the search and improve accuracy."
+                "If you cannot find the exact address, **at least determine the country**."
             ),
         },
         {   
@@ -348,9 +361,9 @@ def get_affiliation_address_perplexity(affiliations):
             "content": (
                 "Use Google to find the **full address** of each listed affiliation.\n\n"
                 "**Return the result in this STRICT format:**\n"
-                "Institution | Address | Country\n"
+                "Institution/Society | Address (if found) | Country (mandatory)\n"
                 "------------------------------------------------\n"
-                f"{', '.join(affiliations)}"
+                f"{', '.join(bi_word_affiliations)}"
             ),
         },
     ]
@@ -496,9 +509,75 @@ def search_scholar_with_h_index(query, max_articles=5):
         st.error(f"An error occurred: {e}")
         return None
 
-
-
 ##################################################################################################################################
+
+
+
+
+
+def get_coordinates_from_address(address):
+    """Convert latitude and longitude with Geopy (Nominatim)."""
+    geolocator = Nominatim(user_agent="researcher_locator")
+    try:
+        location = geolocator.geocode(address, timeout=15)
+        if location:
+            return location.latitude, location.longitude
+    except GeocoderTimedOut:
+        st.warning(f"⏳ Timeout for the adresse : {address}")
+    return None, None
+
+def display_researcher_map(df, user_lat, user_lon, search_radius):
+    """View the world map with the position of the researchers."""
+    if df.empty:
+        st.warning("No searchers found to display on map.")
+        return
+
+    # Center to the user
+    m = folium.Map(location=[user_lat, user_lon], zoom_start=3)
+
+    # Add blue cercle
+    folium.Circle(
+        location=[user_lat, user_lon],
+        radius=search_radius * 1000,
+        color="blue",
+        fill=True,
+        fill_opacity=0.2,
+    ).add_to(m)
+
+    # Add seachers to the map
+    for _, row in df.iterrows():
+        if pd.notnull(row["Address"]):  # Verify the adress is available
+            lat, lon = row.get("Latitude"), row.get("Longitude")
+
+            # If no latitude/longitude, so search for
+            if pd.isnull(lat) or pd.isnull(lon):
+                lat, lon = get_coordinates_from_address(row["Address"])
+                df.at[_, "Latitude"], df.at[_, "Longitude"] = lat, lon  # Met à jour le DataFrame
+
+            if lat and lon:
+                researcher_loc = (lat, lon)
+                user_loc = (user_lat, user_lon)
+
+                # Calculate the distance between user and location
+                distance_km = geodesic(user_loc, researcher_loc).km
+
+                # Check if the searcher is within the search radius
+                if distance_km <= search_radius:
+                    folium.Marker(
+                        location=researcher_loc,
+                        popup=f"<b>{row['Name']}</b><br>{row['Affiliation']}<br><b>H-index:</b> {row['H-index']}<br><b>Address:</b> {row['Address']}<br><b>Distance:</b> {distance_km:.1f} km",max_width=75,
+                        icon=folium.Icon(color="red", icon="glyphicon-user"),
+                    ).add_to(m)
+
+    # Viewing the map in Streamlit
+    st.subheader("🌍 World Map - Searchers")
+    folium_static(m)
+
+
+
+
+
+
 ##################################################################################################################################
 ##################################################################################################################################
 
@@ -952,10 +1031,10 @@ elif st.session_state['page'] == "documentation":
 
 # Radar Page
 elif st.session_state['page'] == "radar":
-    st.title("Welcome to the researcher radar !")
+    st.title("🕵🏽‍♂️ - Welcome to the researcher radar !")
 
     # Choice of search option
-    search_option = st.radio("Choose a search option :", ["Researcher", "Research Topic"])
+    search_option = st.radio("Choose a search option :", ["Research Topic","Researcher"])
 
     if search_option == "Researcher":
         # Existing interface for researcher search
@@ -980,105 +1059,108 @@ elif st.session_state['page'] == "radar":
 
 
     elif search_option == "Research Topic":
-      # Streamlit Interface
-      st.title("Finder's compass")
+        # Streamlit Interface
+        st.title("🧭 - Finder's compass")
 
-      # Search by Topic
-      search_theme = st.text_input("Enter a research topic", placeholder="Ex: Artificial Intelligence")
+        # Search by Topic
+        search_theme = st.text_input("Enter a research topic", placeholder="Ex: Artificial Intelligence")
 
-      # Filter by H-index
-      h_index_min = st.number_input("Filter researchers with an H-index greater than :", min_value=0, value=0, step=1)
+        # Filter by H-index
+        h_index_min = st.number_input("Filter researchers with an H-index greater than :", min_value=0, value=0, step=1)
 
-      # Retrieve the standardized list of countries (in English)
-      country_list = sorted([country.name for country in pycountry.countries])
+        # Retrieve the standardized list of countries (in English)
+        country_list = sorted([country.name for country in pycountry.countries])
 
-      # Filter by Country (Multiple Dropdown List)
-      selected_countries = st.multiselect("Filter by country :", country_list, default=[])
+        # Filter by Country (Multiple Dropdown List)
+        selected_countries = st.multiselect("Filter by country :", country_list, default=[])
 
-      if st.button("Search for researchers"):
-          if search_theme:
-              with st.spinner("Search in progress on Google Scholar..."):
-                  authors_list, publications = search_scholars_from_theme(search_theme, max_results=25)
+        st.sidebar.subheader("Votre position")
+        user_lat = st.sidebar.number_input("Entrez votre latitude", value=48.8566, format="%.6f")  # Par défaut : Paris
+        user_lon = st.sidebar.number_input("Entrez votre longitude", value=2.3522, format="%.6f")  # Par défaut : Paris
+        search_radius = st.sidebar.slider("Rayon de recherche (km)", 10, 50000, 100)  # Rayon en km
 
-                  if authors_list and publications:
-                      with st.spinner("Retrieving full names via Perplexity (with publication verification)..."):
-                          complete_names = get_scholar_names_perplexity(authors_list, publications)
 
-                          if complete_names:
-                              scholar_info_list = []
-                              affiliations_list = []
+        if st.button("➪ Search for researchers 🏹"):
+            if search_theme:
+                with st.spinner("Search in progress on Google Scholar..."):
+                    authors_list, publications = search_scholars_from_theme(search_theme, max_results=25)
 
-                              with st.spinner("Searching for Google Scholar profiles and scraping data..."):
-                                  for full_name in complete_names.split("\n"):
-                                      scholar_url = find_scholar_profile(full_name)
+                    if authors_list and publications:
+                        with st.spinner("Retrieving full names via Perplexity (with publication verification)..."):
+                            complete_names = get_scholar_names_perplexity(authors_list, publications)
 
-                                      if scholar_url:
-                                          scholar_info = get_scholar_profile_serpapi(scholar_url)
-                                          scholar_info_list.append(scholar_info)
+                            if complete_names:
+                                scholar_info_list = []
+                                affiliations_list = []
 
-                                          if scholar_info["Affiliation"] != "Unknown affiliation":
-                                              affiliations_list.append(scholar_info["Affiliation"])
-                                      else:
-                                          scholar_info_list.append({
-                                              "Name": full_name,
-                                              "Affiliation": "Not found",
-                                              "H-index": "Non disponible",
-                                              "Address": "Not available",
-                                              "Country": "Not available"
-                                          })
+                                with st.spinner("Searching for Google Scholar profiles and scraping data..."):
+                                    for full_name in complete_names.split("\n"):
+                                        scholar_url = find_scholar_profile(full_name)
 
-                              with st.spinner("Searching for addresses and countries of affiliations via Perplexity..."):
-                                  # Cleaning and filtering affiliations
-                                  affiliations_list = [clean_affiliation(scholar["Affiliation"]) for scholar in scholar_info_list if scholar["Affiliation"] != "Unknown affiliation"]
-                                  affiliations_list = list(filter(None, affiliations_list))  # Remove None
-                                  
-                                  # Step 1: Ask Perplexity to clarify abbreviations
-                                  expanded_affiliations = expand_affiliation_abbreviations(affiliations_list)
+                                        if scholar_url:
+                                            scholar_info = get_scholar_profile_serpapi(scholar_url)
+                                            scholar_info_list.append(scholar_info)
 
-                                  # Replace abbreviations with their full names if possible
-                                  affiliations_list = [expanded_affiliations.get(aff, aff) for aff in affiliations_list]
+                                            if scholar_info["Affiliation"] != "Unknown affiliation":
+                                                affiliations_list.append(scholar_info["Affiliation"])
+                                        else:
+                                            scholar_info_list.append({
+                                                "Name": full_name,
+                                                "Affiliation": "Not found",
+                                                "H-index": "Non disponible",
+                                                "Address": "Not available",
+                                                "Country": "Not available"
+                                            })
 
-                                  # Step 2: Searching for addresses with corrected affiliations
-                                  affiliation_data = get_affiliation_address_perplexity(affiliations_list)
+                                with st.spinner("Searching for addresses and countries of affiliations via Perplexity..."):
+                                    affiliations_list = list(filter(None, affiliations_list))  # Remove None
+                                    affiliation_data = get_affiliation_address_perplexity(affiliations_list)
 
-                                  if not isinstance(affiliation_data, dict):
-                                      affiliation_data = {}
+                                    if not isinstance(affiliation_data, dict):
+                                        affiliation_data = {}
 
-                                  # Updating researchers with addresses and countries
-                                  for scholar in scholar_info_list:
-                                      original_affiliation = scholar["Affiliation"]
-                                      cleaned_affiliation = clean_affiliation(original_affiliation)
+                                    for scholar in scholar_info_list:
+                                        original_affiliation = scholar["Affiliation"]
+                                        scholar["Address"], scholar["Country"] = affiliation_data.get(original_affiliation, ("Not available", "Not available"))
 
-                                      if cleaned_affiliation and cleaned_affiliation in affiliation_data:
-                                          scholar["Address"], scholar["Country"] = affiliation_data[cleaned_affiliation]
-                                      else:
-                                          scholar["Address"], scholar["Country"] = find_best_match(original_affiliation, affiliation_data)
+                                # Convert H-index to numeric and remove unavailable values
+                                df = pd.DataFrame(scholar_info_list)
+                                df["Country"] = df["Country"].apply(standardize_country)
+                                df["H-index"] = pd.to_numeric(df["H-index"], errors="coerce")  # Convert to number
+                                df = df.dropna(subset=["H-index"])  # Remove NaN
 
-                                      print("Researcher updated:", scholar)
+                                # Filtering by user-defined minimum H-index
+                                df = df[df["H-index"] >= h_index_min]
 
-                              # Convert H-index to numeric and remove unavailable values
-                              df = pd.DataFrame(scholar_info_list)
-                              df["Country"] = df["Country"].apply(standardize_country)
-                              df["H-index"] = pd.to_numeric(df["H-index"], errors="coerce")  # Convert to number
-                              df = df.dropna(subset=["H-index"])  # Remove NaN
+                                if "Latitude" not in df.columns or "Longitude" not in df.columns:
+                                    df["Latitude"], df["Longitude"] = None, None
 
-                              # Filtering by user-defined minimum H-index
-                              df = df[df["H-index"] >= h_index_min]
+                                for index, row in df.iterrows():
+                                    if pd.isnull(row["Latitude"]) or pd.isnull(row["Longitude"]):
+                                        lat, lon = get_coordinates_from_address(row["Address"])
+                                        df.at[index, "Latitude"] = lat
+                                        df.at[index, "Longitude"] = lon
 
-                              # Filtering by selected countries
-                              if selected_countries:
-                                df = df[df["Country"].isin(selected_countries)]
-                              # Displaying filtered researchers
-                              df = df.drop(columns=["Profile"], errors="Ignore")
-                              st.subheader(f"Complete Information on Researchers (H-index ≥ {h_index_min})")
-                              st.dataframe(df, use_container_width=True, hide_index=True)
+                                # Filtering by selected countries
+                                if selected_countries:
+                                  df = df[df["Country"].isin(selected_countries)]
+                                # Displaying filtered researchers
+                                df = df.drop(columns=["Profile"], errors="Ignore")
+                                df = df.drop(columns=["Latitude"], errors="Ignore")
+                                df = df.drop(columns=["Longitude"], errors="Ignore")
+                                st.subheader(f"Complete Information on Researchers (H-index ≥ {h_index_min})")
+                                st.dataframe(df, use_container_width=True, hide_index=True)
 
-                          else:
-                              st.warning("No information found via Perplexity.")
-                  else:
-                      st.warning("No researcher found for this topic.")
-          else:
-              st.warning("Please enter a topic before searching.")
+                                # View the map
+                                display_researcher_map(df, user_lat, user_lon, search_radius)
+                            else:
+                                st.warning("No information found via Perplexity.")
+                    else:
+                        st.warning("No researcher found for this topic.")
+            else:
+                st.warning("Please enter a topic before searching.")
+
+
 
 
 
@@ -1097,7 +1179,10 @@ elif st.session_state['page'] == "about":
     {"nom": "Chahet", "prenom": "Sid Ali", "role": "Chef de projet MOE", "image": "https://i.pinimg.com/564x/28/c8/f2/28c8f26756e59662e3cbcec3e8ac5922.jpg"},
     {"nom": "Camara", "prenom": "Aichetou", "role": "Architecte projet", "image": "https://i.pinimg.com/564x/3d/85/96/3d85965b24cfec4339cbe2661275bae5.jpg"},
     {"nom": "Belfekroun", "prenom": "Charaf", "role": "Expert data analyste", "image": "https://i.pinimg.com/564x/38/f6/9e/38f69e68a850e021a9b963f35fb80424.jpg"},
-    {"nom": "DOGLAS PRINCE", "prenom": "Davinson", "role": "Developpeur IA", "image": ""}
+    {"nom": "DOGLAS PRINCE", "prenom": "Davinson", "role": "Lead Developpeur IA", "image": "assets/Profil_davinson.png"},
+    {"nom": "POSENEL", "prenom": "Théo", "role": "Developpeur Front-End", "image": "assets/Profil_theo.webp"},
+    {"nom": "HAMLETTE", "prenom": "Nahla", "role": "Data scientist", "image": "assets/Profil_nahla.webp"},
+
   ]
 
   # Affichage des divs
@@ -1106,15 +1191,16 @@ elif st.session_state['page'] == "about":
     with col1:
         col11, col12 = st.columns(2)
         with col11:
-          st.image(personnes[i]["image"], width=200)
+          st.image(personnes[i]["image"], width=300)
         with col12:
           st.header(f"{personnes[i]['prenom']} {personnes[i]['nom']}")
           st.subheader(personnes[i]["role"])
 
-    with col2:
-      col21, col22 = st.columns(2)
-      with col21:
-        st.image(personnes[i+1]["image"], width=200)
-      with col22:
-        st.header(f"{personnes[i+1]['prenom']} {personnes[i+1]['nom']}")
-        st.subheader(personnes[i+1]["role"])
+    if i + 1 < len(personnes):  # Vérifier que i+1 est dans la plage valide
+        with col2:
+            col21, col22 = st.columns(2)
+            with col21:
+                st.image(personnes[i+1]["image"], width=300)
+            with col22:
+                st.header(f"{personnes[i+1]['prenom']} {personnes[i+1]['nom']}")
+                st.subheader(personnes[i+1]["role"])
