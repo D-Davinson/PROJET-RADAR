@@ -1,6 +1,7 @@
 import sys
 from datetime import datetime
 import re
+import time
 import openai
 from scholarly import scholarly
 import re
@@ -15,7 +16,7 @@ os.environ["SSL_CERT_FILE"] = certifi.where()
 import folium
 from streamlit_folium import folium_static
 from geopy.geocoders import Nominatim
-from geopy.exc import GeocoderTimedOut
+from geopy.exc import GeocoderTimedOut, GeocoderUnavailable
 from geopy.distance import geodesic
 
 # Importing libraries for data processing
@@ -521,16 +522,35 @@ def search_scholar_with_h_index(query, max_articles=5):
 
 
 
-def get_coordinates_from_address(address):
-    """Convert latitude and longitude with Geopy (Nominatim)."""
+
+def get_coordinates_from_address(address, retries=3, delay=2):
+    """
+    Converts an address into latitude and longitude using Geopy (Nominatim).
+
+    Args:
+        address (str): The address to geocode.
+        retries (int): Number of retry attempts in case of failure (default: 3).
+        delay (int): Delay (in seconds) between retries to avoid API rate limits (default: 2s).
+
+    Returns:
+        tuple: (latitude, longitude) if successful, otherwise (None, None).
+    """
     geolocator = Nominatim(user_agent="researcher_locator")
-    try:
-        location = geolocator.geocode(address, timeout=15)
-        if location:
-            return location.latitude, location.longitude
-    except GeocoderTimedOut:
-        st.warning(f"⏳ Timeout for the adresse : {address}")
-    return None, None
+
+    for i in range(retries):
+        try:
+            location = geolocator.geocode(address, timeout=3)
+            if location:
+                return location.latitude, location.longitude
+        except GeocoderTimedOut:
+            st.warning(f"⏳ Timeout for address: {address}. Retrying ({i+1}/{retries})...")
+        except GeocoderUnavailable:
+            st.error(f"❌ The geocoding service is currently unavailable.")
+            return None, None  # Stop immediately if the service is down
+
+        time.sleep(delay)  # Wait before retrying
+
+    return None, None  # Return None if all retries fail
 
 def display_researcher_map(df, user_lat, user_lon, search_radius):
     """View the world map with the position of the researchers."""
