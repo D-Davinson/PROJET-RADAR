@@ -120,6 +120,12 @@ st.markdown(
         justify-content: center;
         align-items: center;
     }
+    .big-label {
+            font-size: 17px;
+            font-weight: normal;
+            margin-bottom: -50px;
+        }
+    </style>
     </style>
     """,
     unsafe_allow_html=True
@@ -166,7 +172,7 @@ def search_scholars_from_theme(theme, max_results=25):
         authors_list = set()
         publications_list = []  # Stock all publications
 
-        for _ in range(max_results):  # Limit for time exucution
+        for _ in range(max_results):  # Limit for time execution
             try:
                 publication = next(search_query)
                 title = publication['bib'].get('title', "Unknown title")
@@ -231,7 +237,7 @@ def get_scholar_names_perplexity(authors, publications):
 
 
 
-########################################## STEP 3: FOUND THE PROFIL WITH SCHOLARLY  ###########################################################
+########################################## STEP 3: FOUND THE PROFILE WITH SCHOLARLY  ###########################################################
 def find_scholar_profile(full_name):
     """Search for a researcher on Google Scholar using scholarly and return the URL of their profile if found..."""
     search_query = scholarly.search_author(full_name)
@@ -245,12 +251,12 @@ def find_scholar_profile(full_name):
 
 
 
-#####################################  STEP 4: SCRAP H-INDEX AND AFFLIATION  #################################################################
+#####################################  STEP 4: SCRAP H-INDEX AND AFFILIATION  #################################################################
 
 def get_scholar_profile_serpapi(scholar_url):
     """Use SerpAPI to retrieve the affiliation and H-index of a researcher via their Google Scholar profile."""
 
-    # # Extract ID user with URL profil GOOGLE SCHOLAR using REGEX syntax
+    # # Extract ID user with URL profile GOOGLE SCHOLAR using REGEX syntax
     match = re.search(r"user=([a-zA-Z0-9_-]+)", scholar_url)
     if not match:
         return {
@@ -316,7 +322,7 @@ def clean_affiliation(affiliation):
 
 
 
-#####################################  STEP 6: PARSE AFFLIATION ADRESSES ############################################################# 
+#####################################  STEP 6: PARSE AFFILIATION ADDRESSES ############################################################# 
 
 def parse_affiliation_addresses(response_text):
     """Convert raw response from Perplexity into a dictionary {Affiliation: (Address, Country)}."""
@@ -336,7 +342,7 @@ def parse_affiliation_addresses(response_text):
 
 
 
-###################################  STEP 7: GET ADRESSES WITH PERPLEXITY -> SCRAP INTELLIGENT / BI-WORD ######################################### 
+###################################  STEP 7: GET ADDRESSES WITH PERPLEXITY -> SCRAP INTELLIGENT / BI-WORD ######################################### 
 def get_affiliation_address_perplexity(affiliations):
     """Uses Perplexity AI to search for the full address and country of the listed institutions using bi-word indexing."""
     if not affiliations:
@@ -380,7 +386,7 @@ def get_affiliation_address_perplexity(affiliations):
 
 
 
-#####################################  STEP 8: MATCHING PROCESS BETWEEN AFFLIATION DATA AND PERPLEXITY ################################ 
+#####################################  STEP 8: MATCHING PROCESS BETWEEN AFFILIATION DATA AND PERPLEXITY ################################ 
 
 # Function to find the best match.
 def find_best_match(original_affiliation, affiliation_data):
@@ -394,7 +400,7 @@ def find_best_match(original_affiliation, affiliation_data):
 
 
 
-#####################################  STEP 9: PARSE ABBREVIATED AFFLIATION DATA ################################################ 
+#####################################  STEP 9: PARSE ABBREVIATED AFFILIATION DATA ################################################ 
 
 def parse_expanded_affiliations(response_text):
     """Convert raw response from Perplexity into a dictionary {Abbreviation: Full name}."""
@@ -412,7 +418,7 @@ def parse_expanded_affiliations(response_text):
 
 
 
-#####################################  STEP 10 : PROCESS FOR GIVE FULL NAME TO ABBREVIATED AFFLIATION DATA ############################### 
+#####################################  STEP 10 : PROCESS FOR GIVE FULL NAME TO ABBREVIATED AFFILIATION DATA ############################### 
 
 def expand_affiliation_abbreviations(affiliations):
     """
@@ -454,7 +460,7 @@ def expand_affiliation_abbreviations(affiliations):
     return {}
 
 
-#####################################  STEP 11 : STANDARD COUNTRY LIBARIES ############################################ 
+#####################################  STEP 11 : STANDARD COUNTRY LIBRARIES ############################################ 
 
 
 def standardize_country(country_name):
@@ -544,7 +550,7 @@ def display_researcher_map(df, user_lat, user_lon, search_radius):
         fill_opacity=0.2,
     ).add_to(m)
 
-    # Add seachers to the map
+    # Add searchers to the map
     for _, row in df.iterrows():
         if pd.notnull(row["Address"]):  # Verify the adress is available
             lat, lon = row.get("Latitude"), row.get("Longitude")
@@ -1034,7 +1040,8 @@ elif st.session_state['page'] == "radar":
     st.title("🕵🏽‍♂️ - Welcome to the researcher radar !")
 
     # Choice of search option
-    search_option = st.radio("Choose a search option :", ["Research Topic","Researcher"])
+    st.markdown('<p class="big-label">Choose a search option:</p>', unsafe_allow_html=True)
+    search_option = st.radio("", ["Research Topic", "Researcher"])
 
     if search_option == "Researcher":
         # Existing interface for researcher search
@@ -1061,18 +1068,26 @@ elif st.session_state['page'] == "radar":
     elif search_option == "Research Topic":
         # Streamlit Interface
         st.title("🧭 - Finder's compass")
+        col1, col2 = st.columns([3, 1])
+        col3, _ = st.columns([2, 2])  
 
         # Search by Topic
-        search_theme = st.text_input("Enter a research topic", placeholder="Ex: Artificial Intelligence")
+        with col1:
+          st.markdown('<p class="big-label">Enter a research topic</p>', unsafe_allow_html=True)
+          search_theme = st.text_input("", placeholder="Ex: Artificial Intelligence")
 
         # Filter by H-index
-        h_index_min = st.number_input("Filter researchers with an H-index greater than :", min_value=0, value=0, step=1)
+        with col2:
+          st.markdown('<p class="big-label">Filter researchers with an H-index greater than:</p>', unsafe_allow_html=True)
+          h_index_min = st.number_input("", min_value=0, value=0, step=1)
 
         # Retrieve the standardized list of countries (in English)
-        country_list = sorted([country.name for country in pycountry.countries])
+        with col3:
+          st.markdown('<p class="big-label">Filter by country:</p>', unsafe_allow_html=True)
+          country_list = sorted([country.name for country in pycountry.countries])
 
         # Filter by Country (Multiple Dropdown List)
-        selected_countries = st.multiselect("Filter by country :", country_list, default=[])
+          selected_countries = st.multiselect("", country_list, default=[])
 
         st.sidebar.subheader("Votre position")
         user_lat = st.sidebar.number_input("Entrez votre latitude", value=48.8566, format="%.6f")  # Par défaut : Paris
