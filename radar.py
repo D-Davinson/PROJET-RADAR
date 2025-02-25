@@ -523,34 +523,16 @@ def search_scholar_with_h_index(query, max_articles=5):
 
 
 
-def get_coordinates_from_address(address, retries=3, delay=2):
-    """
-    Converts an address into latitude and longitude using Geopy (Nominatim).
-
-    Args:
-        address (str): The address to geocode.
-        retries (int): Number of retry attempts in case of failure (default: 3).
-        delay (int): Delay (in seconds) between retries to avoid API rate limits (default: 2s).
-
-    Returns:
-        tuple: (latitude, longitude) if successful, otherwise (None, None).
-    """
+def get_coordinates_from_address(address):
+    """Convert latitude and longitude with Geopy (Nominatim)."""
     geolocator = Nominatim(user_agent="researcher_locator")
-
-    for i in range(retries):
-        try:
-            location = geolocator.geocode(address, timeout=3)
-            if location:
-                return location.latitude, location.longitude
-        except GeocoderTimedOut:
-            st.warning(f"⏳ Timeout for address: {address}. Retrying ({i+1}/{retries})...")
-        except GeocoderUnavailable:
-            st.error(f"❌ The geocoding service is currently unavailable.")
-            return None, None  # Stop immediately if the service is down
-
-        time.sleep(delay)  # Wait before retrying
-
-    return None, None  # Return None if all retries fail
+    try:
+        location = geolocator.geocode(address, timeout=10)
+        if location:
+            return location.latitude, location.longitude
+    except GeocoderTimedOut:
+        st.warning(f"⏳ Timeout for the adresse : {address}")
+    return None, None
 
 def display_researcher_map(df, user_lat, user_lon, search_radius):
     """View the world map with the position of the researchers."""
