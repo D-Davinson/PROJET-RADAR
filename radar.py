@@ -163,7 +163,7 @@ client = openai.OpenAI(api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https:
 
 
 ###########################################  STEP 1 : SEARCH THEME FROM GOOGLE SCHOLAR  ##############################################
-def search_scholars_from_theme(theme, max_results=25):
+def search_scholars_from_theme(theme, max_results=35):
     """Search for publications on Google Scholar based on a topic extract the involved authors.
     Return two lists : 
       - A unique list of authors
@@ -1100,7 +1100,7 @@ elif st.session_state['page'] == "radar":
         if st.button("➪ Search for researchers 🏹"):
             if search_theme:
                 with st.spinner("Search in progress on Google Scholar..."):
-                    authors_list, publications = search_scholars_from_theme(search_theme, max_results=25)
+                    authors_list, publications = search_scholars_from_theme(search_theme, max_results=35)
 
                     if authors_list and publications:
                         with st.spinner("Retrieving full names via Perplexity (with publication verification)..."):
