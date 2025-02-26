@@ -1149,27 +1149,38 @@ elif st.session_state['page'] == "radar":
                                 # Filtering by user-defined minimum H-index
                                 df = df[df["H-index"] >= h_index_min]
 
-                                if "Latitude" not in df.columns or "Longitude" not in df.columns:
-                                    df["Latitude"], df["Longitude"] = None, None
 
-                                for index, row in df.iterrows():
-                                    if pd.isnull(row["Latitude"]) or pd.isnull(row["Longitude"]):
-                                        lat, lon = get_coordinates_from_address(row["Address"])
-                                        df.at[index, "Latitude"] = lat
-                                        df.at[index, "Longitude"] = lon
 
+                              #  if "Latitude" not in df.columns or "Longitude" not in df.columns:
+                              #      df["Latitude"], df["Longitude"] = None, None
+
+                              #  for index, row in df.iterrows():
+                              #      if pd.isnull(row["Latitude"]) or pd.isnull(row["Longitude"]):
+                              #          lat, lon = get_coordinates_from_address(row["Address"])
+                              #          df.at[index, "Latitude"] = lat
+                              #          df.at[index, "Longitude"] = lon
+
+
+
+
+                                # Sorting by H-index
+                                df = df.sort_values(by="H-index", ascending=False)
                                 # Filtering by selected countries
                                 if selected_countries:
                                   df = df[df["Country"].isin(selected_countries)]
                                 # Displaying filtered researchers
                                 df = df.drop(columns=["Profile"], errors="Ignore")
-                                df = df.drop(columns=["Latitude"], errors="Ignore")
-                                df = df.drop(columns=["Longitude"], errors="Ignore")
+
+
+                                # df = df.drop(columns=["Latitude"], errors="Ignore")
+                                # df = df.drop(columns=["Longitude"], errors="Ignore")
+
+
                                 st.subheader(f"Complete Information on Researchers (H-index ≥ {h_index_min})")
                                 st.dataframe(df, use_container_width=True, hide_index=True)
 
                                 # View the map
-                                display_researcher_map(df, user_lat, user_lon, search_radius)
+                                # display_researcher_map(df, user_lat, user_lon, search_radius)
                             else:
                                 st.warning("No information found via Perplexity.")
                     else:
