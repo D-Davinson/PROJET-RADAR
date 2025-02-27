@@ -163,7 +163,7 @@ client = openai.OpenAI(api_key=os.getenv("PERPLEXITY_API_KEY"), base_url="https:
 
 
 ###########################################  STEP 1 : SEARCH THEME FROM GOOGLE SCHOLAR  ##############################################
-def search_scholars_from_theme(theme, max_results=35):
+def search_scholars_from_theme(theme, max_results):
     """Search for publications on Google Scholar based on a topic extract the involved authors.
     Return two lists : 
       - A unique list of authors
@@ -578,7 +578,7 @@ def display_researcher_map(df, user_lat, user_lon, search_radius):
                     ).add_to(m)
 
     # Viewing the map in Streamlit
-    st.subheader("🌍 World Map - Searchers")
+    st.subheader("🌍 Obtained Results As a Map (Based on Radius Information)")
     folium_static(m)
 
 
@@ -725,15 +725,15 @@ with col1:
 
 
 with col2:
-  col21, col22, col24 ,col23 = st.columns(4)
+  col21, col22, col23 ,col24 = st.columns(4)
   with col21:
-    st.button("Documentation", on_click=documentation_page)
-  with col22:
-    st.button("About Us", on_click=about_page)
-  with col23:
     st.button("Load Your Data", on_click=load_page, key=load_page)
-  with col24:
+  with col22:
     st.button("🛰️ Radar", on_click=radar_page)
+  with col23:
+    st.button("Documentation", on_click=documentation_page)
+  with col24:
+    st.button("About Us", on_click=about_page)
 
 
 
@@ -1039,18 +1039,18 @@ elif st.session_state['page'] == "documentation":
 
 # Radar Page
 elif st.session_state['page'] == "radar":
-    st.title("🕵🏽‍♂️ - Welcome to the researcher radar !")
+    st.title("🕵🏽‍♂️ - Welcome to RADAR project !")
 
     # Choice of search option
-    st.markdown('<p class="big-label">Choose a search option:</p>', unsafe_allow_html=True)
-    search_option = st.radio("", ["Research Topic", "Researcher"])
+    st.markdown('<p class="big-label">Select an option of you:</p>', unsafe_allow_html=True)
+    search_option = st.radio("\n", ["By Topic", "By Name"])
 
-    if search_option == "Researcher":
+    if search_option == "By Name":
         # Existing interface for researcher search
         search_term = st.sidebar.text_input("Search Researcher", placeholder="Enter a researcher's name")
         max_articles = st.sidebar.slider("Max number of articles", 1, 20, 5)
 
-        if st.sidebar.button("Search"):
+        if st.sidebar.button("➪ Launch 🏹"):
             if search_term.strip():
                 with st.spinner("Fetching data..."):
                     result = search_scholar_with_h_index(search_term, max_articles)
@@ -1067,21 +1067,21 @@ elif st.session_state['page'] == "radar":
                 st.warning("Please enter a search term.")
 
 
-    elif search_option == "Research Topic":
+    elif search_option == "By Topic":
         # Streamlit Interface
         st.title("🧭 - Finder's compass")
         col1, col2 = st.columns([3, 1])
-        col3, _ = st.columns([2, 2])  
+        col3, col4 = st.columns([2, 2])  
 
         # Search by Topic
         with col1:
           st.markdown('<p class="big-label">Enter a research topic</p>', unsafe_allow_html=True)
-          search_theme = st.text_input("", placeholder="Ex: Artificial Intelligence")
+          search_theme = st.text_input(" ", placeholder="Ex: Artificial Intelligence")
 
         # Filter by H-index
         with col2:
           st.markdown('<p class="big-label">Filter researchers with an H-index greater than:</p>', unsafe_allow_html=True)
-          h_index_min = st.number_input("", min_value=0, value=0, step=1)
+          h_index_min = st.number_input(" ", min_value=0, value=0, step=1)
 
         # Retrieve the standardized list of countries (in English)
         with col3:
@@ -1089,18 +1089,23 @@ elif st.session_state['page'] == "radar":
           country_list = sorted([country.name for country in pycountry.countries])
 
         # Filter by Country (Multiple Dropdown List)
-          selected_countries = st.multiselect("", country_list, default=[])
+          selected_countries = st.multiselect(" ", country_list, default=[])
 
-        st.sidebar.subheader("Votre position")
-        user_lat = st.sidebar.number_input("Entrez votre latitude", value=48.8566, format="%.6f")  # Par défaut : Paris
-        user_lon = st.sidebar.number_input("Entrez votre longitude", value=2.3522, format="%.6f")  # Par défaut : Paris
-        search_radius = st.sidebar.slider("Rayon de recherche (km)", 10, 50000, 100)  # Rayon en km
+        # Filter by publications
+        with col4:
+          st.markdown('<p class="big-label">Filter by publications</p>', unsafe_allow_html=True)
+          max_publications = st.number_input(" ", min_value=1, value=35, step=1)
+
+        st.sidebar.subheader("Your current position")
+        user_lat = st.sidebar.number_input("Latitude", value=48.8566, format="%.6f") 
+        user_lon = st.sidebar.number_input("Longitude", value=2.3522, format="%.6f")  
+        search_radius = st.sidebar.slider("Your perimeter (km)", 10, 50000, 100) 
 
 
-        if st.button("➪ Search for researchers 🏹"):
+        if st.button("➪ Launch 🏹"):
             if search_theme:
                 with st.spinner("Search in progress on Google Scholar..."):
-                    authors_list, publications = search_scholars_from_theme(search_theme, max_results=35)
+                    authors_list, publications = search_scholars_from_theme(search_theme, max_results=max_publications)
 
                     if authors_list and publications:
                         with st.spinner("Retrieving full names via Perplexity (with publication verification)..."):
@@ -1176,7 +1181,7 @@ elif st.session_state['page'] == "radar":
                                 # df = df.drop(columns=["Longitude"], errors="Ignore")
 
 
-                                st.subheader(f"Complete Information on Researchers (H-index ≥ {h_index_min})")
+                                st.subheader("Table Of Obtained Reserchers")
                                 st.dataframe(df, use_container_width=True, hide_index=True)
 
                                 # View the map
