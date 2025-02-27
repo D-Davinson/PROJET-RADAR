@@ -66,7 +66,7 @@ $ pip install streamlit scholarly google-search-results streamlit-folium folium 
 To compile the program :
 
 ```
-$ clone https://github.com/D-Davinson/PROJET-RADAR.git
+$ git clone https://github.com/D-Davinson/PROJET-RADAR.git
 ```
 
 _Open the repository PROJET-RADAR_
@@ -79,6 +79,7 @@ SERPAPI_KEY = "..."
 ```
 
 ```
+$ git switch deploy_localhost
 $ streamlit run radar.py
 ```
 
@@ -88,10 +89,11 @@ The deployment is done on Streamlit Cloud and is accessible at the following add
 
 ## 👁️ View
 
-<img width="1509" alt="Capture d’écran 2025-02-26 à 12 50 24" src="https://github.com/user-attachments/assets/acb5ed12-4144-43ce-a145-4cd07ebfee27" />
-<img width="1502" alt="Capture d’écran 2025-02-26 à 13 06 53" src="https://github.com/user-attachments/assets/c51034cc-bd44-4c5e-a6ea-aed75c385712" />
-<img width="1510" alt="Capture d’écran 2025-02-26 à 12 51 32" src="https://github.com/user-attachments/assets/5a0f9ed4-63eb-44d6-a585-b5c321ee1d5e" />
-<img width="1512" alt="Capture d’écran 2025-02-26 à 13 11 07" src="https://github.com/user-attachments/assets/fef4fa6f-fd8e-4019-b17b-aa6009e52a6b" />
+<img width="1511" alt="Capture d’écran 2025-02-27 à 18 10 21" src="https://github.com/user-attachments/assets/d674be79-9b0e-4ce0-9fcd-1bb924519b65" />
+<img width="1512" alt="Capture d’écran 2025-02-27 à 18 11 05" src="https://github.com/user-attachments/assets/bb5ca73f-2bab-4edd-9cb8-d67edc947bca" />
+<img width="1512" alt="Capture d’écran 2025-02-27 à 18 24 07" src="https://github.com/user-attachments/assets/ab617cee-1290-4396-9bba-81fe102a5431" />
+<img width="1512" alt="Capture d’écran 2025-02-27 à 18 26 54" src="https://github.com/user-attachments/assets/ca085bab-e798-4eeb-bfdd-8ef70b7e6b0b" />
+
 
 ## 🧑🏽‍💻 Authors
 
